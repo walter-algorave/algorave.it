@@ -223,7 +223,7 @@ function handlePointerEnter() {
 
 function handlePointerLeave() {
   if (field && (typeof touches === "undefined" || touches.length === 0)) {
-    field.setPointerInCanvas(false);
+    field.resetPointerState();
   }
 }
 
@@ -513,6 +513,12 @@ class VectorField {
 
   setPointerInCanvas(state) {
     this.pointerInCanvas = !!state;
+  }
+
+  resetPointerState() {
+    this.pointerInCanvas = false;
+    this.pointerPresenceValue = 0;
+    this._mouseInit = false;
   }
 }
 
