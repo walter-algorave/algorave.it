@@ -50,6 +50,14 @@ const BASE_VIEWPORT = { width: 2560, height: 1440 };
 const BASE_DIAGONAL = Math.hypot(BASE_VIEWPORT.width, BASE_VIEWPORT.height);
 const BASE_SHORT_SIDE = Math.min(BASE_VIEWPORT.width, BASE_VIEWPORT.height);
 
+const FLOWER_FRAME_FILES = [
+  "assets/flower_0.png",
+  "assets/flower_1.png",
+  "assets/flower_2.png",
+  "assets/flower_3.png",
+  "assets/flower_4.png"
+];
+
 const CONFIG = {
   canvas: {
     pixelDensity: 1,
@@ -229,7 +237,12 @@ function handlePointerLeave() {
 
 
 let field;
-let interactiveButton;
+let bloomingFlower;
+let flowerFrames = [];
+
+function preload() {
+  flowerFrames = FLOWER_FRAME_FILES.map((path) => loadImage(path));
+}
 
 function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
@@ -247,15 +260,15 @@ function setup() {
   strokeWeight(CONFIG.canvas.strokeWeight * spacingRatio);
 
   field = new VectorField(fieldConfig);
-  interactiveButton = new RevealButton(buttonConfig);
+  bloomingFlower = new BloomingFlower(buttonConfig, flowerFrames);
 
   background(CONFIG.canvas.background);
 }
 
 function draw() {
   background(CONFIG.canvas.background);
-  field.updateAndDraw(mouseX, mouseY, interactiveButton);
-  interactiveButton.draw();
+  field.updateAndDraw(mouseX, mouseY, bloomingFlower);
+  bloomingFlower.draw();
 }
 
 function windowResized() {
@@ -267,8 +280,8 @@ function windowResized() {
   if (field) {
     field.applyResponsiveConfig(fieldConfig);
   }
-  if (interactiveButton) {
-    interactiveButton.applyResponsiveConfig(buttonConfig);
+  if (bloomingFlower) {
+    bloomingFlower.applyResponsiveConfig(buttonConfig);
   }
 }
 
@@ -522,76 +535,36 @@ class VectorField {
   }
 }
 
-class RevealButton {
-  constructor({
-    radius = 50,
-    revealRadius = 220,
-    holePadding = 30,
-    revealStart = 0.25,
-    revealVisibleOffset = 0.05,
-    label = "enter",
-    glowBase = 0.35,
-    glowGain = 0.65,
-    bodyScaleBase = 0.55,
-    bodyScaleGain = 0.35,
-    dropShadowGray = 0,
-    dropShadowAlpha = 35,
-    dropShadowYOffset = 5,
-    dropShadowWidthScale = 1.4,
-    dropShadowHeightScale = 1.6,
-    ringGray = 15,
-    ringAlphaBase = 80,
-    ringAlphaGain = 140,
-    ringWeightBase = 1.2,
-    ringWeightGain = 2.2,
-    ringScale = 1.25,
-    bodyGray = 18,
-    bodyAlphaBase = 140,
-    bodyAlphaGain = 110,
-    labelGray = 250,
-    labelAlpha = 200,
-    textSizeBase = 14,
-    textSizeGain = 3,
-    hoverRingGray = 18,
-    hoverRingAlpha = 220,
-    hoverRingWeight = 2.5
-  } = {}) {
+class BloomingFlower {
+  constructor(
+    {
+      radius = 50,
+      revealRadius = 220,
+      holePadding = 30,
+      revealStart = 0.25,
+      revealVisibleOffset = 0.05,
+      glowBase = 0.35,
+      glowGain = 0.65,
+      bodyScaleBase = 0.55,
+      bodyScaleGain = 0.35
+    } = {},
+    frames = []
+  ) {
     this.radius = radius;
     this.revealRadius = revealRadius;
     this.holePadding = holePadding;
     this.revealStart = revealStart;
     this.revealVisibleOffset = revealVisibleOffset;
-    this.label = label;
     this.glowBase = glowBase;
     this.glowGain = glowGain;
     this.bodyScaleBase = bodyScaleBase;
     this.bodyScaleGain = bodyScaleGain;
-    this.dropShadowGray = dropShadowGray;
-    this.dropShadowAlpha = dropShadowAlpha;
-    this.dropShadowYOffset = dropShadowYOffset;
-    this.dropShadowWidthScale = dropShadowWidthScale;
-    this.dropShadowHeightScale = dropShadowHeightScale;
-    this.ringGray = ringGray;
-    this.ringAlphaBase = ringAlphaBase;
-    this.ringAlphaGain = ringAlphaGain;
-    this.ringWeightBase = ringWeightBase;
-    this.ringWeightGain = ringWeightGain;
-    this.ringScale = ringScale;
-    this.bodyGray = bodyGray;
-    this.bodyAlphaBase = bodyAlphaBase;
-    this.bodyAlphaGain = bodyAlphaGain;
-    this.labelGray = labelGray;
-    this.labelAlpha = labelAlpha;
-    this.textSizeBase = textSizeBase;
-    this.textSizeGain = textSizeGain;
-    this.hoverRingGray = hoverRingGray;
-    this.hoverRingAlpha = hoverRingAlpha;
-    this.hoverRingWeight = hoverRingWeight;
+
+    this.frames = frames;
 
     this.center = createVector(width / 2, height / 2);
     this.proximity = 0;
     this.activation = 0;
-    this.hover = false;
     this.visible = false;
     this._hole = null;
   }
@@ -603,19 +576,17 @@ class RevealButton {
   }
 
   computeHole(mouseVec, baseRepel) {
-    // Il bottone rimane centrato sulla finestra corrente
     this.center.set(width / 2, height / 2);
 
     const dist = p5.Vector.dist(mouseVec, this.center);
     this.proximity = constrain(1 - dist / this.revealRadius, 0, 1);
-    this.hover = dist <= this.radius;
 
     const normalized = constrain(
       (this.proximity - this.revealStart) / (1 - this.revealStart),
       0,
       1
     );
-    this.activation = this.hover ? 1 : this._easeOutCubic(normalized);
+    this.activation = this._easeOutCubic(normalized);
 
     this.visible = this.proximity > this.revealStart + this.revealVisibleOffset;
 
@@ -626,80 +597,41 @@ class RevealButton {
 
     const targetRadius = this.radius + this.holePadding;
     const radius = lerp(baseRepel, targetRadius, this.activation);
-    const center = this.hover
-      ? this.center.copy()
-      : p5.Vector.lerp(mouseVec, this.center, this.activation);
+    const center = p5.Vector.lerp(mouseVec, this.center, this.activation);
 
     this._hole = { center, radius };
     return this._hole;
   }
 
   draw() {
-    if (!this.visible) {
+    if (!this.visible || this.frames.length === 0) {
       return;
     }
 
     push();
     translate(this.center.x, this.center.y);
+    imageMode(CENTER);
 
     const glow = this.glowBase + this.glowGain * this.activation;
-    const bodyScale = this.bodyScaleBase + this.bodyScaleGain * this.activation;
-    const bodyDiameter = this.radius * 2 * bodyScale;
+    const scale = this.bodyScaleBase + this.bodyScaleGain * this.activation;
+    const size = this.radius * 2 * scale;
 
-    // Ombra e bagliore morbido
-    noStroke();
-    fill(
-      this.dropShadowGray,
-      this.dropShadowGray,
-      this.dropShadowGray,
-      this.dropShadowAlpha * glow
-    );
-    ellipse(
-      0,
-      this.dropShadowYOffset * (1 - glow),
-      bodyDiameter * this.dropShadowWidthScale,
-      bodyDiameter * this.dropShadowHeightScale
-    );
+    const lastIndex = this.frames.length - 1;
+    const progress = constrain(this.activation, 0, 1) * lastIndex;
+    const idx0 = floor(progress);
+    const idx1 = min(idx0 + 1, lastIndex);
+    const blend = progress - idx0;
+    const alpha = 255 * glow;
 
-    // Anello esterno
-    stroke(
-      this.ringGray,
-      this.ringGray,
-      this.ringGray,
-      this.ringAlphaBase + this.ringAlphaGain * glow
-    );
-    strokeWeight(this.ringWeightBase + this.ringWeightGain * glow);
-    noFill();
-    ellipse(0, 0, bodyDiameter * this.ringScale);
+    tint(255, alpha * (1 - blend));
+    image(this.frames[idx0], 0, 0, size, size);
 
-    // Corpo del bottone
-    noStroke();
-    fill(
-      this.bodyGray,
-      this.bodyGray,
-      this.bodyGray,
-      this.bodyAlphaBase + this.bodyAlphaGain * glow
-    );
-    circle(0, 0, bodyDiameter);
-
-    // Testo centrale
-    fill(this.labelGray, this.labelGray, this.labelGray, this.labelAlpha);
-    textAlign(CENTER, CENTER);
-    textSize(this.textSizeBase + this.textSizeGain * glow);
-    text(this.label, 0, 0);
-
-    if (this.hover) {
-      noFill();
-      stroke(
-        this.hoverRingGray,
-        this.hoverRingGray,
-        this.hoverRingGray,
-        this.hoverRingAlpha
-      );
-      strokeWeight(this.hoverRingWeight);
-      ellipse(0, 0, (this.radius + this.holePadding) * 2);
+    if (idx1 !== idx0) {
+      tint(255, alpha * blend);
+      image(this.frames[idx1], 0, 0, size, size);
     }
 
+    noTint();
     pop();
   }
 
@@ -712,3 +644,4 @@ class RevealButton {
     return 1 - pow(1 - clamped, 3);
   }
 }
+

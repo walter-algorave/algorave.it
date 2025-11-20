@@ -25,10 +25,9 @@ CONFIGURAZIONE
      - directionEpsilon: soglia per calcolare direzioni stabili.
      - pushEpsilon: spinta minima da applicare.
      - angleEpsilon: soglia per evitare divisioni per zero sull'angolo.
-   - arrowShape.shaftRatio: meta fusto rispetto alla lunghezza.
-   - arrowShape.tipLengthRatio: lunghezza della punta.
-   - arrowShape.tipWidthRatio: larghezza della punta.
-    - densityCompensation: controlla come la densita del pattern si alleggerisce su viewport piccole.
+     - arrowShape.*: proporzioni della freccia.
+     - densityCompensation: controlla come la densita del pattern si alleggerisce su viewport piccole.
+     - pointerPresence.enterRate/exitRate: velocita con cui il buco del cursore appare/scompare.
 
    PULSANTE (CONFIG.button)
      - radiusRatio: percentuale del lato corto per il raggio del bottone.
@@ -54,14 +53,14 @@ const BASE_SHORT_SIDE = Math.min(BASE_VIEWPORT.width, BASE_VIEWPORT.height);
 const CONFIG = {
   canvas: {
     pixelDensity: 1,
-    strokeColor: 10,
+    strokeColor: 20,
     strokeWeight: 2.25,
     background: 250
   },
   field: {
-    spacingRatio: 45 / BASE_VIEWPORT.width,
+    spacingRatio: 55 / BASE_VIEWPORT.width,
     arrowLenSpacingRatio: 16 / 45,
-    repelRadiusSpacingRatio: 50 / 45,
+    repelRadiusSpacingRatio: 90 / 45,
     stiffness: 0.075,
     damping: 0.86,
     maxSpeed: 12,
@@ -83,6 +82,10 @@ const CONFIG = {
       minShortSide: 420,
       maxShortSide: 1280,
       boost: 1.6
+    },
+    pointerPresence: {
+      enterRate: 0.4,
+      exitRate: 0.08
     }
   },
   button: {
@@ -212,11 +215,28 @@ function buildResponsiveConfigs() {
   };
 }
 
+function handlePointerEnter() {
+  if (field) {
+    field.setPointerInCanvas(true);
+  }
+}
+
+function handlePointerLeave() {
+  if (field && (typeof touches === "undefined" || touches.length === 0)) {
+    field.resetPointerState();
+  }
+}
+
+
 let field;
 let interactiveButton;
 
 function setup() {
-  createCanvas(windowWidth, windowHeight);
+  const canvas = createCanvas(windowWidth, windowHeight);
+  canvas.mouseOver(handlePointerEnter);
+  canvas.mouseOut(handlePointerLeave);
+  window.addEventListener("pointerleave", handlePointerLeave);
+  window.addEventListener("blur", handlePointerLeave);
   pixelDensity(CONFIG.canvas.pixelDensity);
   stroke(CONFIG.canvas.strokeColor);
   noFill();
@@ -252,6 +272,29 @@ function windowResized() {
   }
 }
 
+function mouseMoved() {
+  handlePointerEnter();
+}
+
+function mouseDragged() {
+  handlePointerEnter();
+}
+
+function mouseOut() {
+  handlePointerLeave();
+}
+
+function touchStarted() {
+  handlePointerEnter();
+}
+
+function touchEnded() {
+  if (typeof touches === "undefined" || touches.length === 0) {
+    handlePointerLeave();
+  }
+}
+
+
 class VectorField {
   constructor({
     spacing = 50,
@@ -269,7 +312,8 @@ class VectorField {
     directionEpsilon = 1e-4,
     pushEpsilon = 1e-3,
     angleEpsilon = 1e-6,
-    arrowShape = {}
+    arrowShape = {},
+    pointerPresence = {}
   } = {}) {
     this.spacing = spacing;
     this.arrowLen = arrowLen;
@@ -295,6 +339,17 @@ class VectorField {
       tipWidthRatio = 0.35
     } = arrowShape;
     this.arrowShape = { shaftRatio, tipLengthRatio, tipWidthRatio };
+
+    const {
+      enterRate = 0.35,
+      exitRate = 0.08
+    } = pointerPresence;
+    this.pointerPresenceConfig = {
+      enterRate: constrain(enterRate, 0, 1),
+      exitRate: constrain(exitRate, 0, 1)
+    };
+    this.pointerPresenceValue = 0;
+    this.pointerInCanvas = false;
 
     this.smoothedMouse = createVector(0, 0);
     this._mouseInit = false;
@@ -339,6 +394,14 @@ class VectorField {
     this.arrowLen = config.arrowLen;
     this.repelRadius = config.repelRadius;
     this.falloffMultiplier = config.falloffMultiplier;
+    if (config.pointerPresence) {
+      this.pointerPresenceConfig = {
+        ...this.pointerPresenceConfig,
+        ...config.pointerPresence
+      };
+      this.pointerPresenceConfig.enterRate = constrain(this.pointerPresenceConfig.enterRate, 0, 1);
+      this.pointerPresenceConfig.exitRate = constrain(this.pointerPresenceConfig.exitRate, 0, 1);
+    }
     this.rebuild();
   }
 
@@ -351,6 +414,7 @@ class VectorField {
       this.smoothedMouse.lerp(curMouse, this.mouseLerp);
     }
     const m = this.smoothedMouse.copy();
+    const pointerPresence = this._updatePointerPresence();
 
     // Calcola eventuale buco creato dal pulsante/interfaccia
     const holeData = revealTarget
@@ -358,7 +422,8 @@ class VectorField {
       : null;
 
     const holeCenter = holeData?.center ?? m;
-    const holeRadius = holeData?.radius ?? this.repelRadius;
+    const baseHoleRadius = holeData?.radius ?? this.repelRadius;
+    const holeRadius = baseHoleRadius * pointerPresence;
     const falloffRange = holeRadius * this.falloffMultiplier;
     const outerRadius = holeRadius + falloffRange;
     const boundaryPush = falloffRange * this.outerStrength;
@@ -427,6 +492,34 @@ class VectorField {
     line(tipEnd, 0, tipStart, -tipWidth);
   }
 
+  _updatePointerPresence() {
+    const hasPointer = this._hasActivePointer();
+    const target = hasPointer ? 1 : 0;
+    const rate = hasPointer
+      ? this.pointerPresenceConfig.enterRate
+      : this.pointerPresenceConfig.exitRate;
+    const clampedRate = constrain(rate, 0, 1);
+    this.pointerPresenceValue = lerp(this.pointerPresenceValue, target, clampedRate);
+    if (abs(this.pointerPresenceValue - target) < 1e-3) {
+      this.pointerPresenceValue = target;
+    }
+    return this.pointerPresenceValue;
+  }
+
+  _hasActivePointer() {
+    const hasTouch = typeof touches !== "undefined" && touches.length > 0;
+    return hasTouch || this.pointerInCanvas;
+  }
+
+  setPointerInCanvas(state) {
+    this.pointerInCanvas = !!state;
+  }
+
+  resetPointerState() {
+    this.pointerInCanvas = false;
+    this.pointerPresenceValue = 0;
+    this._mouseInit = false;
+  }
 }
 
 class RevealButton {
