@@ -12,7 +12,10 @@ CONFIGURAZIONE
    CAMPO (CONFIG.field)
      - spacingRatio: frazione della larghezza di riferimento usata per la griglia.
      - arrowLenSpacingRatio: lunghezza della freccia rispetto allo spacing.
-     - repelRadiusSpacingRatio: raggio del "buco" rispetto allo spacing.
+     - repelRadiusSpacingRatio: raggio del "buco" rispetto allo spacing (fallback generico).
+     - cursorRepelRadiusSpacingRatio: raggio del buco generato dal puntatore, separato dal fiore.
+     - cursorClearSpacingRatio: raggio del disco di esclusione totale per il puntatore (0 = disattivo).
+     - cursorClearFeatherSpacingRatio: fascia di sfumatura in cui le frecce riappaiono gradualmente.
      - stiffness: elasticita del ritorno verso la posizione target.
      - damping: smorzamento della velocita accumulata.
      - maxSpeed: limite alla velocita del movimento.
@@ -29,22 +32,26 @@ CONFIGURAZIONE
      - densityCompensation: controlla come la densita del pattern si alleggerisce su viewport piccole.
      - pointerPresence.enterRate/exitRate: velocita con cui il buco del cursore appare/scompare.
 
-   PULSANTE (CONFIG.button)
-     - radiusRatio: percentuale del lato corto per il raggio del bottone.
-     - revealRadiusDiagonalRatio: percentuale della diagonale usata per il reveal.
-     - holePaddingRatio: margine extra del buco rispetto al lato corto.
-     - revealStart: soglia di prossimita per iniziare il reveal.
-     - revealVisibleOffset: margine per renderlo visibile.
-     - label: testo mostrato al centro.
-     - glowBase/glowGain: intensita dell'alone rispetto all'attivazione.
-     - bodyScaleBase/bodyScaleGain: scala del corpo rispetto al raggio.
-     - dropShadowGray/dropShadowAlpha: colore e trasparenza ombra.
-     - dropShadowYOffsetRatio/WidthScale/HeightScale: forma dell'ombra.
-     - ringGray/ringAlpha/ringWeightBaseRatio/ringWeightGainRatio/ringScale: contorno principale.
-     - bodyGray/bodyAlpha*: riempimento del corpo del bottone.
-     - labelGray/labelAlpha/textSizeBaseRatio/textSizeGainRatio: stile del testo.
-     - hoverRingGray/hoverRingAlpha/hoverRingWeightRatio: alone in hover.
-*/
+   FIORE (CONFIG.flower)
+     - radiusRatio: percentuale del lato corto per il raggio base dello sprite del fiore.
+     - revealRadiusDiagonalRatio: raggio (in frazione della diagonale) entro cui inizia a crescere l'attivazione.
+     - holePaddingRatio: padding aggiuntivo del buco quando il fiore e pienamente attivo.
+     - clearRadiusRatio: raggio del disco di esclusione totale attorno al fiore (0 = disattivo, scala col bloom).
+     - clearFeatherRatio: fascia di sfumatura per reintrodurre gradualmente le frecce oltre il disco di esclusione.
+     - revealStart: soglia di prossimita (0-1) a cui parte l'animazione/bloom.
+     - revealVisibleOffset: offset extra per rendere il fiore visibile dopo l'inizio del bloom.
+     - activationLerpMinRate/activationLerpMaxRate: limiti del lerp sull'attivazione per ingressi lenti/rapidi.
+     - activationLerpDeltaWindow: delta di attivazione entro cui il lerp scala da min a max (smorza scatti).
+     - activationLerpMinRateExit/activationLerpMaxRateExit: velocita di uscita (rilascio) verso 0.
+     - fadeInExponent: curva dell'alpha rispetto all'attivazione (1 = lineare, >1 parte piu lenta).
+     - frameHoldActivation: soglia di attivazione fino a cui viene mantenuto il frame 0 (bocciolo).
+     - activationVisibilityThreshold: sotto questa attivazione il fiore smette di disegnarsi (coda piu corta).
+     - rotationMaxDegrees/rotationExponent: ampiezza massima e curva di crescita della rotazione durante il bloom.
+     - frameProgressExponent: curva con cui si avanza tra i frame dello sprite (1 = lineare, >1 accelera verso la fine).
+      - glowBase/glowGain: intensita di tint/alpha applicata ai frame in funzione dell'attivazione.
+      - bodyScaleBase/bodyScaleGain: scala dello sprite rispetto al raggio base lungo la curva di attivazione.
+      - frames: sequenza definita in FLOWER_FRAME_FILES, blendata in base all'attivazione (lerp tra frame adiacenti).
+ */
 
 const BASE_VIEWPORT = { width: 2560, height: 1440 };
 const BASE_DIAGONAL = Math.hypot(BASE_VIEWPORT.width, BASE_VIEWPORT.height);
@@ -55,7 +62,8 @@ const FLOWER_FRAME_FILES = [
   "assets/flower_1.png",
   "assets/flower_2.png",
   "assets/flower_3.png",
-  "assets/flower_4.png"
+  "assets/flower_4.png",
+  "assets/flower_5.png"
 ];
 
 const CONFIG = {
@@ -69,6 +77,9 @@ const CONFIG = {
     spacingRatio: 45 / BASE_VIEWPORT.width,
     arrowLenSpacingRatio: 16 / 45,
     repelRadiusSpacingRatio: 50 / 45,
+    cursorRepelRadiusSpacingRatio: 50 / 45,
+    cursorClearSpacingRatio: 30.8 / 45,
+    cursorClearFeatherSpacingRatio: 20 / 45,
     stiffness: 0.075,
     damping: 0.86,
     maxSpeed: 12,
@@ -96,38 +107,29 @@ const CONFIG = {
       exitRate: 0.08
     }
   },
-  button: {
-    radiusRatio: 52 / BASE_SHORT_SIDE,
-    revealRadiusDiagonalRatio: 160 / BASE_DIAGONAL,
-    holePaddingRatio: 80 / BASE_SHORT_SIDE,
+  flower: {
+    radiusRatio: 122 / BASE_SHORT_SIDE,
+    revealRadiusDiagonalRatio: 180 / BASE_DIAGONAL,
+    holePaddingRatio: 120 / BASE_SHORT_SIDE,
+    clearRadiusRatio: 40 / BASE_SHORT_SIDE,
+    clearFeatherRatio: 70 / BASE_SHORT_SIDE,
     revealStart: 0.25,
     revealVisibleOffset: 0.04,
-    label: "enter",
-    glowBase: 0.35,
+    activationLerpMinRate: 0.025,
+    activationLerpMaxRate: 0.1,
+    activationLerpDeltaWindow: 0.3,
+    activationLerpMinRateExit: 0.06,
+    activationLerpMaxRateExit: 0.58,
+    fadeInExponent: 1.15,
+    frameHoldActivation: 0.24,
+    activationVisibilityThreshold: 0.05,
+    rotationMaxDegrees: 60,
+    rotationExponent: 1.4,
+    frameProgressExponent: 0.7,
+    glowBase: 0.45,
     glowGain: 0.65,
-    bodyScaleBase: 0.55,
-    bodyScaleGain: 0.35,
-    dropShadowGray: 0,
-    dropShadowAlpha: 35,
-    dropShadowYOffsetRatio: 5 / BASE_SHORT_SIDE,
-    dropShadowWidthScale: 1.4,
-    dropShadowHeightScale: 1.6,
-    ringGray: 15,
-    ringAlphaBase: 80,
-    ringAlphaGain: 140,
-    ringWeightBaseRatio: 1.2 / BASE_SHORT_SIDE,
-    ringWeightGainRatio: 2.2 / BASE_SHORT_SIDE,
-    ringScale: 1.25,
-    bodyGray: 18,
-    bodyAlphaBase: 140,
-    bodyAlphaGain: 110,
-    labelGray: 250,
-    labelAlpha: 200,
-    textSizeBaseRatio: 14 / BASE_SHORT_SIDE,
-    textSizeGainRatio: 3 / BASE_SHORT_SIDE,
-    hoverRingGray: 18,
-    hoverRingAlpha: 220,
-    hoverRingWeightRatio: 2.5 / BASE_SHORT_SIDE
+    bodyScaleBase: 0.45,
+    bodyScaleGain: 0.35
   }
 };
 
@@ -159,6 +161,9 @@ function buildResponsiveFieldConfig(base) {
     spacingRatio,
     arrowLenSpacingRatio,
     repelRadiusSpacingRatio,
+    cursorRepelRadiusSpacingRatio,
+    cursorClearSpacingRatio,
+    cursorClearFeatherSpacingRatio,
     falloffMultiplier,
     densityCompensation,
     ...rest
@@ -172,34 +177,28 @@ function buildResponsiveFieldConfig(base) {
     ...rest,
     spacing,
     arrowLen: spacing * arrowLenSpacingRatio,
-    repelRadius: spacing * repelRadiusSpacingRatio,
+    repelRadius: spacing * (cursorRepelRadiusSpacingRatio ?? repelRadiusSpacingRatio),
+    cursorClearRadius: spacing * (cursorClearSpacingRatio ?? 0),
+    cursorClearFeather: spacing * (cursorClearFeatherSpacingRatio ?? 0),
     falloffMultiplier: falloffMultiplier * reachScale
   };
 }
 
-function buildResponsiveButtonConfig(base) {
+function buildResponsiveFlowerConfig(base) {
   const { layoutScale, reachScale } = computeViewportMetrics();
   const {
     radiusRatio,
     revealRadiusDiagonalRatio,
     holePaddingRatio,
-    dropShadowYOffsetRatio,
-    ringWeightBaseRatio,
-    ringWeightGainRatio,
-    hoverRingWeightRatio,
-    textSizeBaseRatio,
-    textSizeGainRatio,
+    clearRadiusRatio,
+    clearFeatherRatio,
     ...rest
   } = base;
 
   const radiusPx = radiusRatio * BASE_SHORT_SIDE;
   const holePaddingPx = holePaddingRatio * BASE_SHORT_SIDE;
-  const dropShadowYOffsetPx = dropShadowYOffsetRatio * BASE_SHORT_SIDE;
-  const ringWeightBasePx = ringWeightBaseRatio * BASE_SHORT_SIDE;
-  const ringWeightGainPx = ringWeightGainRatio * BASE_SHORT_SIDE;
-  const hoverRingWeightPx = hoverRingWeightRatio * BASE_SHORT_SIDE;
-  const textSizeBasePx = textSizeBaseRatio * BASE_SHORT_SIDE;
-  const textSizeGainPx = textSizeGainRatio * BASE_SHORT_SIDE;
+  const clearRadiusPx = clearRadiusRatio * BASE_SHORT_SIDE;
+  const clearFeatherPx = clearFeatherRatio * BASE_SHORT_SIDE;
   const revealRadiusPx = revealRadiusDiagonalRatio * BASE_DIAGONAL;
 
   return {
@@ -207,19 +206,15 @@ function buildResponsiveButtonConfig(base) {
     radius: radiusPx * layoutScale,
     revealRadius: revealRadiusPx * reachScale,
     holePadding: holePaddingPx * layoutScale,
-    dropShadowYOffset: dropShadowYOffsetPx * layoutScale,
-    ringWeightBase: ringWeightBasePx * layoutScale,
-    ringWeightGain: ringWeightGainPx * layoutScale,
-    hoverRingWeight: hoverRingWeightPx * layoutScale,
-    textSizeBase: textSizeBasePx * layoutScale,
-    textSizeGain: textSizeGainPx * layoutScale
+    clearRadius: clearRadiusPx * layoutScale,
+    clearFeather: clearFeatherPx * layoutScale
   };
 }
 
 function buildResponsiveConfigs() {
   return {
     field: buildResponsiveFieldConfig(CONFIG.field),
-    button: buildResponsiveButtonConfig(CONFIG.button)
+    flower: buildResponsiveFlowerConfig(CONFIG.flower)
   };
 }
 
@@ -254,13 +249,13 @@ function setup() {
   stroke(CONFIG.canvas.strokeColor);
   noFill();
 
-  const { field: fieldConfig, button: buttonConfig } = buildResponsiveConfigs();
+  const { field: fieldConfig, flower: flowerConfig } = buildResponsiveConfigs();
   const baseSpacing = CONFIG.field.spacingRatio * BASE_VIEWPORT.width;
   const spacingRatio = fieldConfig.spacing / baseSpacing;
   strokeWeight(CONFIG.canvas.strokeWeight * spacingRatio);
 
   field = new VectorField(fieldConfig);
-  bloomingFlower = new BloomingFlower(buttonConfig, flowerFrames);
+  bloomingFlower = new BloomingFlower(flowerConfig, flowerFrames);
 
   background(CONFIG.canvas.background);
 }
@@ -273,7 +268,7 @@ function draw() {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-  const { field: fieldConfig, button: buttonConfig } = buildResponsiveConfigs();
+  const { field: fieldConfig, flower: flowerConfig } = buildResponsiveConfigs();
   const baseSpacing = CONFIG.field.spacingRatio * BASE_VIEWPORT.width;
   const spacingRatio = fieldConfig.spacing / baseSpacing;
   strokeWeight(CONFIG.canvas.strokeWeight * spacingRatio);
@@ -281,7 +276,7 @@ function windowResized() {
     field.applyResponsiveConfig(fieldConfig);
   }
   if (bloomingFlower) {
-    bloomingFlower.applyResponsiveConfig(buttonConfig);
+    bloomingFlower.applyResponsiveConfig(flowerConfig);
   }
 }
 
@@ -313,6 +308,8 @@ class VectorField {
     spacing = 50,
     arrowLen = 16,
     repelRadius = 110,
+    cursorClearRadius = 0,
+    cursorClearFeather = 0,
     stiffness = 0.08,
     damping = 0.88,
     maxSpeed = 12,
@@ -331,6 +328,8 @@ class VectorField {
     this.spacing = spacing;
     this.arrowLen = arrowLen;
     this.repelRadius = repelRadius;
+    this.cursorClearRadius = cursorClearRadius;
+    this.cursorClearFeather = cursorClearFeather;
 
     this.stiffness = stiffness;
     this.damping = damping;
@@ -406,6 +405,8 @@ class VectorField {
     this.spacing = config.spacing;
     this.arrowLen = config.arrowLen;
     this.repelRadius = config.repelRadius;
+    this.cursorClearRadius = config.cursorClearRadius ?? this.cursorClearRadius;
+    this.cursorClearFeather = config.cursorClearFeather ?? this.cursorClearFeather;
     this.falloffMultiplier = config.falloffMultiplier;
     if (config.pointerPresence) {
       this.pointerPresenceConfig = {
@@ -429,7 +430,6 @@ class VectorField {
     const m = this.smoothedMouse.copy();
     const pointerPresence = this._updatePointerPresence();
 
-    // Calcola eventuale buco creato dal pulsante/interfaccia
     const holeData = revealTarget
       ? revealTarget.computeHole(m.copy(), this.repelRadius)
       : null;
@@ -440,6 +440,13 @@ class VectorField {
     const falloffRange = holeRadius * this.falloffMultiplier;
     const outerRadius = holeRadius + falloffRange;
     const boundaryPush = falloffRange * this.outerStrength;
+
+    const holeClearRadius = holeData?.clearRadius ?? 0;
+    const holeClearFeather = holeData?.clearFeather ?? 0;
+    const cursorClearRadius = this.cursorClearRadius * pointerPresence;
+    const cursorClearFeather = this.cursorClearFeather * pointerPresence;
+    const clearRadius = Math.max(holeClearRadius, cursorClearRadius);
+    const clearFeather = Math.max(holeClearFeather, cursorClearFeather);
 
     for (let i = 0; i < this.base.length; i++) {
       const base = this.base[i];
@@ -470,6 +477,23 @@ class VectorField {
         }
       }
 
+      if (clearRadius > 0 && d < clearRadius + clearFeather) {
+        const dirOut = d > this.directionEpsilon
+          ? diff.copy().mult(1 / d)
+          : createVector(1, 0);
+        let exclusionPush = 0;
+        if (d < clearRadius) {
+          exclusionPush = clearRadius - d;
+        } else if (clearFeather > 0) {
+          const t = 1 - (d - clearRadius) / clearFeather;
+          const eased = t * t;
+          exclusionPush = clearFeather * eased * 0.6;
+        }
+        if (exclusionPush > 0) {
+          target = p5.Vector.add(target, dirOut.mult(exclusionPush));
+        }
+      }
+
       const toTarget = p5.Vector.sub(target, pos).mult(this.stiffness);
       vel.mult(this.damping).add(toTarget);
 
@@ -490,7 +514,6 @@ class VectorField {
     }
   }
 
-  // Disegna una freccia usando le proporzioni configurabili
   _arrow(len) {
     const { shaftRatio, tipLengthRatio, tipWidthRatio } = this.arrowShape;
     const shaftHalf = len * shaftRatio;
@@ -541,8 +564,21 @@ class BloomingFlower {
       radius = 50,
       revealRadius = 220,
       holePadding = 30,
+      clearRadius = 0,
+      clearFeather = 0,
       revealStart = 0.25,
       revealVisibleOffset = 0.05,
+      activationLerpMinRate = 0.025,
+      activationLerpMaxRate = 0.1,
+      activationLerpDeltaWindow = 0.3,
+      activationLerpMinRateExit = 0.06,
+      activationLerpMaxRateExit = 0.18,
+      fadeInExponent = 1.35,
+      frameHoldActivation = 0.14,
+      activationVisibilityThreshold = 0.02,
+      rotationMaxDegrees = 10,
+      rotationExponent = 1.2,
+      frameProgressExponent = 1.0,
       glowBase = 0.35,
       glowGain = 0.65,
       bodyScaleBase = 0.55,
@@ -553,8 +589,22 @@ class BloomingFlower {
     this.radius = radius;
     this.revealRadius = revealRadius;
     this.holePadding = holePadding;
+    this.clearRadius = clearRadius;
+    this.clearFeather = clearFeather;
     this.revealStart = revealStart;
     this.revealVisibleOffset = revealVisibleOffset;
+    this.activationLerpMinRate = activationLerpMinRate;
+    this.activationLerpMaxRate = activationLerpMaxRate;
+    this.activationLerpDeltaWindow = activationLerpDeltaWindow;
+    this.activationLerpMinRateExit = activationLerpMinRateExit;
+    this.activationLerpMaxRateExit = activationLerpMaxRateExit;
+    this.fadeInExponent = fadeInExponent;
+    this.frameHoldActivation = frameHoldActivation;
+    this.activationVisibilityThreshold = activationVisibilityThreshold;
+    this.rotationMaxDegrees = rotationMaxDegrees;
+    this.rotationExponent = rotationExponent;
+    this.frameProgressExponent = frameProgressExponent;
+    this.rotationMaxRad = radians(rotationMaxDegrees);
     this.glowBase = glowBase;
     this.glowGain = glowGain;
     this.bodyScaleBase = bodyScaleBase;
@@ -571,6 +621,9 @@ class BloomingFlower {
 
   applyResponsiveConfig(config) {
     Object.assign(this, config);
+    if (this.rotationMaxDegrees !== undefined) {
+      this.rotationMaxRad = radians(this.rotationMaxDegrees);
+    }
     this.handleResize();
     this._hole = null;
   }
@@ -586,11 +639,31 @@ class BloomingFlower {
       0,
       1
     );
-    this.activation = this._easeOutCubic(normalized);
+    const targetActivation = this._easeOutCubic(normalized);
 
-    this.visible = this.proximity > this.revealStart + this.revealVisibleOffset;
+    const delta = abs(targetActivation - this.activation);
+    const exiting = targetActivation < this.activation;
+    const minRate = exiting && this.activationLerpMinRateExit !== undefined
+      ? this.activationLerpMinRateExit
+      : this.activationLerpMinRate;
+    const maxRate = exiting && this.activationLerpMaxRateExit !== undefined
+      ? this.activationLerpMaxRateExit
+      : this.activationLerpMaxRate;
+    const rate = constrain(
+      map(delta, 0, this.activationLerpDeltaWindow, minRate, maxRate),
+      minRate,
+      maxRate
+    );
 
-    if (this.activation <= 0) {
+    this.activation = lerp(this.activation, targetActivation, rate);
+    if (abs(this.activation - targetActivation) < 1e-4) {
+      this.activation = targetActivation;
+    }
+
+    const visibilityThreshold = this.activationVisibilityThreshold ?? 1e-4;
+    this.visible = this.activation > visibilityThreshold;
+
+    if (!this.visible) {
       this._hole = null;
       return null;
     }
@@ -599,7 +672,10 @@ class BloomingFlower {
     const radius = lerp(baseRepel, targetRadius, this.activation);
     const center = p5.Vector.lerp(mouseVec, this.center, this.activation);
 
-    this._hole = { center, radius };
+    const clearRadius = this.clearRadius * this.activation;
+    const clearFeather = this.clearFeather;
+
+    this._hole = { center, radius, clearRadius, clearFeather };
     return this._hole;
   }
 
@@ -610,18 +686,32 @@ class BloomingFlower {
 
     push();
     translate(this.center.x, this.center.y);
+    const rotation = this.rotationMaxRad
+      ? this.rotationMaxRad * pow(this.activation, this.rotationExponent)
+      : 0;
+    rotate(rotation);
     imageMode(CENTER);
 
     const glow = this.glowBase + this.glowGain * this.activation;
     const scale = this.bodyScaleBase + this.bodyScaleGain * this.activation;
     const size = this.radius * 2 * scale;
 
+    const fadeIn = pow(constrain(this.activation, 0, 1), this.fadeInExponent);
+
     const lastIndex = this.frames.length - 1;
-    const progress = constrain(this.activation, 0, 1) * lastIndex;
+    const frameT = this.activation <= this.frameHoldActivation
+      ? 0
+      : constrain(
+        (this.activation - this.frameHoldActivation) / (1 - this.frameHoldActivation),
+        0,
+        1
+      );
+    const shapedFrameT = pow(frameT, this.frameProgressExponent ?? 1);
+    const progress = shapedFrameT * lastIndex;
     const idx0 = floor(progress);
     const idx1 = min(idx0 + 1, lastIndex);
     const blend = progress - idx0;
-    const alpha = 255 * glow;
+    const alpha = 255 * glow * fadeIn;
 
     tint(255, alpha * (1 - blend));
     image(this.frames[idx0], 0, 0, size, size);
