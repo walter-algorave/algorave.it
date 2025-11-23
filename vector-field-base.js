@@ -57,14 +57,8 @@ const BASE_VIEWPORT = { width: 2560, height: 1440 };
 const BASE_DIAGONAL = Math.hypot(BASE_VIEWPORT.width, BASE_VIEWPORT.height);
 const BASE_SHORT_SIDE = Math.min(BASE_VIEWPORT.width, BASE_VIEWPORT.height);
 
-const FLOWER_FRAME_FILES = [
-  "assets/flower_0.png",
-  "assets/flower_1.png",
-  "assets/flower_2.png",
-  "assets/flower_3.png",
-  "assets/flower_4.png",
-  "assets/flower_5.png"
-];
+const FLOWER_SPRITE_FILE = "assets/flower_sprite.webp";
+const FLOWER_FRAME_COUNT = 6;
 
 const CONFIG = {
   canvas: {
@@ -233,10 +227,10 @@ function handlePointerLeave() {
 
 let field;
 let bloomingFlower;
-let flowerFrames = [];
+let flowerSprite;
 
 function preload() {
-  flowerFrames = FLOWER_FRAME_FILES.map((path) => loadImage(path));
+  flowerSprite = loadImage(FLOWER_SPRITE_FILE);
 }
 
 function setup() {
@@ -255,7 +249,7 @@ function setup() {
   strokeWeight(CONFIG.canvas.strokeWeight * spacingRatio);
 
   field = new VectorField(fieldConfig);
-  bloomingFlower = new BloomingFlower(flowerConfig, flowerFrames);
+  bloomingFlower = new BloomingFlower(flowerConfig, flowerSprite, FLOWER_FRAME_COUNT);
 
   background(CONFIG.canvas.background);
 }
@@ -366,6 +360,13 @@ class VectorField {
     this.smoothedMouse = createVector(0, 0);
     this._mouseInit = false;
 
+    // Reusable temporary vectors to avoid GC
+    this._tmpDiff = createVector(0, 0);
+    this._tmpDir = createVector(0, 0);
+    this._tmpTarget = createVector(0, 0);
+    this._tmpToTarget = createVector(0, 0);
+    this._tmpDirToMouse = createVector(0, 0);
+
     this.base = [];
     this.pos = [];
     this.vel = [];
@@ -427,9 +428,12 @@ class VectorField {
     } else {
       this.smoothedMouse.lerp(curMouse, this.mouseLerp);
     }
-    const m = this.smoothedMouse.copy();
+    // We can use smoothedMouse directly as 'm' since we won't mutate it destructively for logic
+    const m = this.smoothedMouse;
     const pointerPresence = this._updatePointerPresence();
 
+    // Note: revealTarget.computeHole returns a new object, but that's once per frame, acceptable.
+    // Ideally computeHole could also write to a shared object if we wanted extreme optimization.
     const holeData = revealTarget
       ? revealTarget.computeHole(m.copy(), this.repelRadius)
       : null;
@@ -453,34 +457,55 @@ class VectorField {
       const pos = this.pos[i];
       const vel = this.vel[i];
 
-      const diff = p5.Vector.sub(base, holeCenter);
-      const d = diff.mag();
+      // Calculate diff: base - holeCenter
+      this._tmpDiff.set(base);
+      this._tmpDiff.sub(holeCenter);
 
-      let target = base;
+      const d = this._tmpDiff.mag();
+
+      // Start target at base position
+      this._tmpTarget.set(base);
+
       if (d < outerRadius) {
-        const dir = d > this.directionEpsilon
-          ? diff.copy().mult(1 / d)
-          : createVector(1, 0);
+        // Calculate direction
+        if (d > this.directionEpsilon) {
+          this._tmpDir.set(this._tmpDiff);
+          this._tmpDir.mult(1 / d); // Normalize
+        } else {
+          this._tmpDir.set(1, 0);
+        }
 
         if (d < holeRadius) {
           const insideNorm = constrain((holeRadius - d) / holeRadius, 0, 1);
           const eased = 1 - Math.exp(-this.innerEase * insideNorm);
           const push = boundaryPush + falloffRange * this.innerExtraStrength * eased;
-          target = p5.Vector.add(base, dir.mult(push));
+
+          // target = base + dir * push
+          this._tmpDir.mult(push);
+          this._tmpTarget.add(this._tmpDir);
         } else {
           const falloffNorm = constrain((outerRadius - d) / falloffRange, 0, 1);
           const eased = pow(falloffNorm, this.outerFalloffExponent);
           const push = falloffRange * this.outerStrength * eased;
+
           if (push > this.pushEpsilon) {
-            target = p5.Vector.add(base, dir.mult(push));
+            // target = base + dir * push
+            this._tmpDir.mult(push);
+            this._tmpTarget.add(this._tmpDir);
           }
         }
       }
 
       if (clearRadius > 0 && d < clearRadius + clearFeather) {
-        const dirOut = d > this.directionEpsilon
-          ? diff.copy().mult(1 / d)
-          : createVector(1, 0);
+        // Recalculate direction out (same as before usually, but safe to re-derive or reuse if valid)
+        // We reused _tmpDir above, so let's re-calculate to be safe and clear
+        if (d > this.directionEpsilon) {
+          this._tmpDir.set(this._tmpDiff);
+          this._tmpDir.mult(1 / d);
+        } else {
+          this._tmpDir.set(1, 0);
+        }
+
         let exclusionPush = 0;
         if (d < clearRadius) {
           exclusionPush = clearRadius - d;
@@ -489,22 +514,36 @@ class VectorField {
           const eased = t * t;
           exclusionPush = clearFeather * eased * 0.6;
         }
+
         if (exclusionPush > 0) {
-          target = p5.Vector.add(target, dirOut.mult(exclusionPush));
+          this._tmpDir.mult(exclusionPush);
+          this._tmpTarget.add(this._tmpDir);
         }
       }
 
-      const toTarget = p5.Vector.sub(target, pos).mult(this.stiffness);
-      vel.mult(this.damping).add(toTarget);
+      // Physics update
+      // toTarget = (target - pos) * stiffness
+      this._tmpToTarget.set(this._tmpTarget);
+      this._tmpToTarget.sub(pos);
+      this._tmpToTarget.mult(this.stiffness);
 
-      if (vel.mag() > this.maxSpeed) {
+      // vel = vel * damping + toTarget
+      vel.mult(this.damping);
+      vel.add(this._tmpToTarget);
+
+      if (vel.magSq() > this.maxSpeed * this.maxSpeed) {
         vel.setMag(this.maxSpeed);
       }
 
       pos.add(vel);
 
-      const dirToMouse = p5.Vector.sub(m, pos);
-      const angle = dirToMouse.magSq() > this.angleEpsilon ? dirToMouse.heading() : 0;
+      // Rotation
+      this._tmpDirToMouse.set(m);
+      this._tmpDirToMouse.sub(pos);
+
+      const angle = this._tmpDirToMouse.magSq() > this.angleEpsilon
+        ? this._tmpDirToMouse.heading()
+        : 0;
 
       push();
       translate(pos.x, pos.y);
@@ -584,7 +623,8 @@ class BloomingFlower {
       bodyScaleBase = 0.55,
       bodyScaleGain = 0.35
     } = {},
-    frames = []
+    spriteSheet,
+    frameCount = 6
   ) {
     this.radius = radius;
     this.revealRadius = revealRadius;
@@ -610,7 +650,8 @@ class BloomingFlower {
     this.bodyScaleBase = bodyScaleBase;
     this.bodyScaleGain = bodyScaleGain;
 
-    this.frames = frames;
+    this.spriteSheet = spriteSheet;
+    this.frameCount = frameCount;
 
     this.center = createVector(width / 2, height / 2);
     this.proximity = 0;
@@ -680,7 +721,7 @@ class BloomingFlower {
   }
 
   draw() {
-    if (!this.visible || this.frames.length === 0) {
+    if (!this.visible || !this.spriteSheet) {
       return;
     }
 
@@ -698,7 +739,7 @@ class BloomingFlower {
 
     const fadeIn = pow(constrain(this.activation, 0, 1), this.fadeInExponent);
 
-    const lastIndex = this.frames.length - 1;
+    const lastIndex = this.frameCount - 1;
     const frameT = this.activation <= this.frameHoldActivation
       ? 0
       : constrain(
@@ -713,12 +754,27 @@ class BloomingFlower {
     const blend = progress - idx0;
     const alpha = 255 * glow * fadeIn;
 
+    // Sprite sheet logic
+    // Assuming horizontal strip
+    const frameWidth = this.spriteSheet.width / this.frameCount;
+    const frameHeight = this.spriteSheet.height;
+
+    // Draw frame 0
     tint(255, alpha * (1 - blend));
-    image(this.frames[idx0], 0, 0, size, size);
+    // image(img, dx, dy, dWidth, dHeight, sx, sy, sWidth, sHeight)
+    image(
+      this.spriteSheet,
+      0, 0, size, size,
+      idx0 * frameWidth, 0, frameWidth, frameHeight
+    );
 
     if (idx1 !== idx0) {
       tint(255, alpha * blend);
-      image(this.frames[idx1], 0, 0, size, size);
+      image(
+        this.spriteSheet,
+        0, 0, size, size,
+        idx1 * frameWidth, 0, frameWidth, frameHeight
+      );
     }
 
     noTint();
