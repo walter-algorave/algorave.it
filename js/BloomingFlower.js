@@ -10,7 +10,6 @@ export class BloomingFlower {
             clearRadius = 0,
             clearFeather = 0,
             revealStart = 0.25,
-            revealVisibleOffset = 0.05,
             activationLerpMinRate = 0.025,
             activationLerpMaxRate = 0.1,
             activationLerpDeltaWindow = 0.3,
@@ -25,7 +24,11 @@ export class BloomingFlower {
             glowBase = 0.35,
             glowGain = 0.65,
             bodyScaleBase = 0.55,
-            bodyScaleGain = 0.35
+            bodyScaleGain = 0.35,
+            chromakeyColor = [2 / 255, 0.0, 1.0],
+            chromakeyThreshold = 0.80,
+            chromakeySmoothness = 0.1,
+            offscreenBufferSize = 1024
         } = {},
         video,
         shader
@@ -37,7 +40,6 @@ export class BloomingFlower {
         this.clearRadius = clearRadius;
         this.clearFeather = clearFeather;
         this.revealStart = revealStart;
-        this.revealVisibleOffset = revealVisibleOffset;
         this.activationLerpMinRate = activationLerpMinRate;
         this.activationLerpMaxRate = activationLerpMaxRate;
         this.activationLerpDeltaWindow = activationLerpDeltaWindow;
@@ -54,11 +56,15 @@ export class BloomingFlower {
         this.glowGain = glowGain;
         this.bodyScaleBase = bodyScaleBase;
         this.bodyScaleGain = bodyScaleGain;
+        this.chromakeyColor = chromakeyColor;
+        this.chromakeyThreshold = chromakeyThreshold;
+        this.chromakeySmoothness = chromakeySmoothness;
+        this.offscreenBufferSize = offscreenBufferSize;
 
         this.video = video;
         this.shader = shader;
         this.isVideoReady = false;
-        this.pg = null; // Offscreen buffer for shader
+        this.pg = null;
 
         // Check if video metadata is already loaded
         if (this.video.elt.readyState >= 2) {
@@ -164,8 +170,7 @@ export class BloomingFlower {
 
         // Initialize offscreen buffer if needed
         if (!this.pg && this.video.width > 0) {
-            // Use video dimensions or a reasonable square default
-            const s = Math.max(this.video.width, this.video.height) || 1024;
+            const s = Math.max(this.video.width, this.video.height) || this.offscreenBufferSize;
             this.pg = this.p.createGraphics(s, s, this.p.WEBGL);
         }
 
@@ -206,16 +211,16 @@ export class BloomingFlower {
             console.warn("Video seek failed", e);
         }
 
-        // Apply shader if available
+        // Apply shader
         if (this.pg && this.shader) {
             this.pg.clear();
             this.pg.shader(this.shader);
 
             this.shader.setUniform('tex0', this.video);
-            this.shader.setUniform('threshold', 0.15); // Adjust threshold for black removal
-            this.shader.setUniform('smoothness', 0.1);
+            this.shader.setUniform('keyColor', this.chromakeyColor);
+            this.shader.setUniform('threshold', this.chromakeyThreshold);
+            this.shader.setUniform('smoothness', this.chromakeySmoothness);
 
-            // Draw a rect covering the WEBGL canvas (centered)
             this.pg.rect(-this.pg.width / 2, -this.pg.height / 2, this.pg.width, this.pg.height);
 
             this.p.tint(255, alpha);
