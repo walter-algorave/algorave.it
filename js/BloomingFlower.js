@@ -27,8 +27,8 @@ export class BloomingFlower {
             bodyScaleBase = 0.55,
             bodyScaleGain = 0.35
         } = {},
-        spriteSheet,
-        frameCount = 6
+        video,
+        shader
     ) {
         this.p = p;
         this.radius = radius;
@@ -55,8 +55,19 @@ export class BloomingFlower {
         this.bodyScaleBase = bodyScaleBase;
         this.bodyScaleGain = bodyScaleGain;
 
-        this.spriteSheet = spriteSheet;
-        this.frameCount = frameCount;
+        this.video = video;
+        this.shader = shader;
+        this.isVideoReady = false;
+        this.pg = null; // Offscreen buffer for shader
+
+        // Check if video metadata is already loaded
+        if (this.video.elt.readyState >= 2) {
+            this.isVideoReady = true;
+        } else {
+            this.video.elt.onloadedmetadata = () => {
+                this.isVideoReady = true;
+            };
+        }
 
         this.center = p.createVector(p.width / 2, p.height / 2);
         this.proximity = 0;
@@ -147,8 +158,15 @@ export class BloomingFlower {
     // =========================================================================
 
     draw() {
-        if (!this.visible || !this.spriteSheet) {
+        if (!this.visible || !this.video || !this.isVideoReady) {
             return;
+        }
+
+        // Initialize offscreen buffer if needed
+        if (!this.pg && this.video.width > 0) {
+            // Use video dimensions or a reasonable square default
+            const s = Math.max(this.video.width, this.video.height) || 1024;
+            this.pg = this.p.createGraphics(s, s, this.p.WEBGL);
         }
 
         this.p.push();
@@ -164,44 +182,52 @@ export class BloomingFlower {
         const size = this.radius * 2 * scale;
 
         const fadeIn = this.p.pow(this.p.constrain(this.activation, 0, 1), this.fadeInExponent);
+        const alpha = 255 * glow * fadeIn;
 
-        const lastIndex = this.frameCount - 1;
-        const frameT = this.activation <= this.frameHoldActivation
+        // Video scrubbing logic
+        const duration = this.video.duration();
+
+        // Calculate target time based on activation
+        const videoProgress = this.activation <= this.frameHoldActivation
             ? 0
             : this.p.constrain(
                 (this.activation - this.frameHoldActivation) / (1 - this.frameHoldActivation),
                 0,
                 1
             );
-        const shapedFrameT = this.p.pow(frameT, this.frameProgressExponent ?? 1);
-        const progress = shapedFrameT * lastIndex;
-        const idx0 = this.p.floor(progress);
-        const idx1 = this.p.min(idx0 + 1, lastIndex);
-        const blend = progress - idx0;
-        const alpha = 255 * glow * fadeIn;
 
-        // Sprite sheet logic
-        const frameWidth = this.spriteSheet.width / this.frameCount;
-        const frameHeight = this.spriteSheet.height;
+        const shapedProgress = this.p.pow(videoProgress, this.frameProgressExponent ?? 1);
+        const targetTime = shapedProgress * duration;
 
-        // Draw frame 0
-        this.p.tint(255, alpha * (1 - blend));
-        this.p.image(
-            this.spriteSheet,
-            0, 0, size, size,
-            idx0 * frameWidth, 0, frameWidth, frameHeight
-        );
-
-        if (idx1 !== idx0) {
-            this.p.tint(255, alpha * blend);
-            this.p.image(
-                this.spriteSheet,
-                0, 0, size, size,
-                idx1 * frameWidth, 0, frameWidth, frameHeight
-            );
+        try {
+            const safeTime = this.p.constrain(targetTime, 0, duration - 0.01);
+            this.video.time(safeTime);
+        } catch (e) {
+            console.warn("Video seek failed", e);
         }
 
-        this.p.noTint();
+        // Apply shader if available
+        if (this.pg && this.shader) {
+            this.pg.clear();
+            this.pg.shader(this.shader);
+
+            this.shader.setUniform('tex0', this.video);
+            this.shader.setUniform('threshold', 0.15); // Adjust threshold for black removal
+            this.shader.setUniform('smoothness', 0.1);
+
+            // Draw a rect covering the WEBGL canvas (centered)
+            this.pg.rect(-this.pg.width / 2, -this.pg.height / 2, this.pg.width, this.pg.height);
+
+            this.p.tint(255, alpha);
+            this.p.image(this.pg, 0, 0, size, size);
+            this.p.noTint();
+        } else {
+            // Fallback if shader/pg not ready
+            this.p.tint(255, alpha);
+            this.p.image(this.video, 0, 0, size, size);
+            this.p.noTint();
+        }
+
         this.p.pop();
     }
 }

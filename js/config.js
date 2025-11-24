@@ -15,11 +15,7 @@ export const BASE_SHORT_SIDE = Math.min(BASE_VIEWPORT.width, BASE_VIEWPORT.heigh
 // ASSETS & ANIMATION CONSTANTS
 // =============================================================================
 
-// Path to the sprite sheet image for the flower animation.
-export const FLOWER_SPRITE_FILE = "assets/flower_sprite.webp";
-
-// Number of frames in the flower sprite sheet.
-export const FLOWER_FRAME_COUNT = 6;
+export const FLOWER_VIDEO_FILE = "./assets/flower_v1_smooth.mp4";
 
 // =============================================================================
 // MAIN CONFIGURATION OBJECT
