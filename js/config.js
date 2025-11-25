@@ -12,10 +12,15 @@ export const BASE_DIAGONAL = Math.hypot(BASE_VIEWPORT.width, BASE_VIEWPORT.heigh
 export const BASE_SHORT_SIDE = Math.min(BASE_VIEWPORT.width, BASE_VIEWPORT.height);
 
 // =============================================================================
-// ASSETS & ANIMATION CONSTANTS
+// ASSETS & ANIMATION CONSTANTS FOR PYTHON SCRIPT
 // =============================================================================
 
-export const FLOWER_VIDEO_FILE = "./assets/daisy_flower_smooth.mp4";
+export const FLOWER_SPRITE_FILE = "./assets/flower_sprite.webp";
+export const FLOWER_SOURCE_VIDEO = "./assets/daisy_flower.mp4";
+export const FLOWER_GRID_COLS = 6;
+export const FLOWER_FRAME_COUNT = FLOWER_GRID_COLS * FLOWER_GRID_COLS;
+export const FLOWER_CHROMA_THRESHOLD = 0.45;
+export const FLOWER_CHROMA_SMOOTHNESS = 0.1;
 
 // =============================================================================
 // MAIN CONFIGURATION OBJECT
@@ -110,9 +115,7 @@ export const CONFIG = {
         // Ratio of the clear feathering relative to the base short side.
         clearFeatherRatio: 70 / BASE_SHORT_SIDE,
         // Threshold for starting the reveal animation.
-        revealStart: 0.25,
-        // Offset for visibility during the reveal animation.
-        revealVisibleOffset: 0.04,
+        revealStart: 0.20,
         // Minimum interpolation rate for activation.
         activationLerpMinRate: 0.025,
         // Maximum interpolation rate for activation.
@@ -122,7 +125,7 @@ export const CONFIG = {
         // Minimum interpolation rate for deactivation (exit).
         activationLerpMinRateExit: 0.06,
         // Maximum interpolation rate for deactivation (exit).
-        activationLerpMaxRateExit: 0.58,
+        activationLerpMaxRateExit: 0.48,
         // Exponent for the fade-in curve.
         fadeInExponent: 1.15,
         // Activation threshold to hold the frame.
@@ -134,7 +137,7 @@ export const CONFIG = {
         // Exponent for rotation easing.
         rotationExponent: 1.4,
         // Exponent for frame progress easing.
-        frameProgressExponent: 0.7,
+        frameProgressExponent: 0.8,
         // Base intensity for the glow effect.
         glowBase: 0.45,
         // Gain factor for the glow effect.
@@ -143,21 +146,10 @@ export const CONFIG = {
         bodyScaleBase: 0.45,
         // Gain factor for the flower body scale.
         bodyScaleGain: 0.35,
-        // RGB color to remove from the video (blue screen: #0200FF).
-        // Format: [R/255, G/255, B/255] where values are normalized to 0.0-1.0.
-        // THE CHROMA FRAG IS SET TO DEFAULT BLUE SO YOU HAVE TO CHANGE IT IN THE SHADER
-        chromakeyColor: [2 / 255, 0.0, 1.0],
-        // Distance threshold for chromakey effect. Pixels with color distance
-        // from keyColor below this value will be transparent. Higher values
-        // remove more blue but may affect the flower edges. Range: 0.0-1.0.
-        chromakeyThreshold: 0.60,
-        // Smoothness factor for chromakey edge blending. Controls the softness
-        // of the transition between transparent and opaque areas. Higher values
-        // create softer, more gradual transitions. Range: 0.0-1.0.
-        chromakeySmoothness: 0.3,
-        // Default size for the offscreen graphics buffer used for shader rendering.
-        // Used as fallback when video dimensions are not yet available.
-        offscreenBufferSize: 1024
+        // Number of frames in the sprite sheet.
+        frameCount: FLOWER_FRAME_COUNT,
+        // Number of columns in the sprite sheet grid.
+        gridCols: FLOWER_GRID_COLS
     }
 };
 
