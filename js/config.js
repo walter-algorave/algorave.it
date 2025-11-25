@@ -36,9 +36,9 @@ export const CONFIG = {
         // --- CURSOR INTERACTION (The "Hole" around the mouse) ---
         cursor: {
             // Ratio of the cursor clearing radius relative to the spacing.
-            clearRadiusSpacingRatio: 60 / 45,
+            clearRadiusSpacingRatio: 20 / 45,
             // Ratio of the cursor clearing feathering relative to the spacing.
-            clearFeatherSpacingRatio: 20 / 45,
+            clearFeatherSpacingRatio: 120 / 45,
         },
         // --- PHYSICS ---
         // Stiffness of the arrow spring physics (higher = stiffer).
@@ -101,9 +101,9 @@ export const CONFIG = {
         // Ratio of the hole padding relative to the base short side.
         holePaddingRatio: 70 / BASE_SHORT_SIDE,
         // Ratio of the clear radius relative to the base short side.
-        clearRadiusRatio: 100 / BASE_SHORT_SIDE,
+        clearRadiusRatio: 50 / BASE_SHORT_SIDE,
         // Ratio of the clear feathering relative to the base short side.
-        clearFeatherRatio: 60 / BASE_SHORT_SIDE,
+        clearFeatherRatio: 120 / BASE_SHORT_SIDE,
         // Ratio of the initial hole radius (when starting to bloom) relative to the base short side.
         initialHoleRadiusRatio: 20 / BASE_SHORT_SIDE,
         // Threshold for starting the reveal animation.

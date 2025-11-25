@@ -254,11 +254,11 @@ export class VectorField {
 
                     let exclusionPush = 0;
                     if (d < cursorClearRadius) {
-                        exclusionPush = cursorClearRadius - d;
+                        exclusionPush = (cursorClearRadius - d) + (cursorClearFeather * 0.25);
                     } else if (cursorClearFeather > 0) {
                         const t = 1 - (d - cursorClearRadius) / cursorClearFeather;
                         const eased = t * t;
-                        exclusionPush = cursorClearFeather * eased * 0.6;
+                        exclusionPush = cursorClearFeather * eased * 0.25;
                     }
 
                     if (exclusionPush > 0) {
@@ -285,11 +285,11 @@ export class VectorField {
 
                         let exclusionPush = 0;
                         if (d < hole.holeClearRadius) {
-                            exclusionPush = hole.holeClearRadius - d;
+                            exclusionPush = (hole.holeClearRadius - d) + (hole.holeClearFeather * 0.25);
                         } else if (hole.holeClearFeather > 0) {
                             const t = 1 - (d - hole.holeClearRadius) / hole.holeClearFeather;
                             const eased = t * t;
-                            exclusionPush = hole.holeClearFeather * eased * 0.6;
+                            exclusionPush = hole.holeClearFeather * eased * 0.25;
                         }
 
                         if (exclusionPush > 0) {
