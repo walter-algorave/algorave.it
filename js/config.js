@@ -12,13 +12,15 @@ export const BASE_DIAGONAL = Math.hypot(BASE_VIEWPORT.width, BASE_VIEWPORT.heigh
 export const BASE_SHORT_SIDE = Math.min(BASE_VIEWPORT.width, BASE_VIEWPORT.height);
 
 // =============================================================================
-// ASSETS & ANIMATION CONSTANTS
+// ASSETS & ANIMATION CONSTANTS FOR PYTHON SCRIPT
 // =============================================================================
 
 export const FLOWER_SPRITE_FILE = "./assets/flower_sprite.webp";
 export const FLOWER_SOURCE_VIDEO = "./assets/daisy_flower.mp4";
 export const FLOWER_GRID_COLS = 6;
 export const FLOWER_FRAME_COUNT = FLOWER_GRID_COLS * FLOWER_GRID_COLS;
+export const FLOWER_CHROMA_THRESHOLD = 0.45;
+export const FLOWER_CHROMA_SMOOTHNESS = 0.1;
 
 // =============================================================================
 // MAIN CONFIGURATION OBJECT

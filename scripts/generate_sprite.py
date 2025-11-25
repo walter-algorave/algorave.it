@@ -4,7 +4,7 @@ import math
 import argparse
 import os
 
-def process_video(video_path, output_path, num_frames=25, grid_width=None):
+def process_video(video_path, output_path, num_frames=25, grid_width=None, chroma_threshold=0.45, chroma_smoothness=0.1):
     if not os.path.exists(video_path):
         print(f"Error: Video file not found at {video_path}")
         return
@@ -25,11 +25,8 @@ def process_video(video_path, output_path, num_frames=25, grid_width=None):
     # Chroma key settings (matching the shader/config)
     # Config: [2/255, 0.0, 1.0] -> B=255, G=0, R=2 (OpenCV uses BGR)
     key_color = np.array([255, 0, 2]) 
-    threshold = 0.60 * 441.67 # 441.67 is max distance in 3D RGB space (sqrt(255^2 * 3)). 
-    # Actually shader uses normalized 0-1. 
-    # Shader: dist = length(color - key) (normalized).
-    # Let's work in 0-255 space. Max dist is sqrt(255^2 + 255^2 + 255^2) = 441.67
-    # Threshold 0.60 * 441.67 = 265
+    
+    # Max distance in 3D RGB space (sqrt(255^2 * 3)) = 441.67
     
     # Let's refine the keying to be robust.
     # The user wants "sfondi gia tagliati".
@@ -72,8 +69,8 @@ def process_video(video_path, output_path, num_frames=25, grid_width=None):
         # float alpha = smoothstep(threshold, threshold + smoothness, dist);
         # So if dist < threshold, alpha is 0 (transparent).
         
-        thresh_val = 0.45 * 441.67 # Lowered slightly to be safe, adjust if needed
-        smooth_val = 0.1 * 441.67
+        thresh_val = chroma_threshold * 441.67 
+        smooth_val = chroma_smoothness * 441.67
         
         alpha = np.clip((dist - thresh_val) / smooth_val, 0, 1)
         
@@ -152,6 +149,14 @@ def load_config(config_path):
     grid_cols_match = re.search(r'export const FLOWER_GRID_COLS = (\d+);', content)
     if grid_cols_match:
         config['grid_width'] = int(grid_cols_match.group(1))
+
+    chroma_thresh_match = re.search(r'export const FLOWER_CHROMA_THRESHOLD = ([\d\.]+);', content)
+    if chroma_thresh_match:
+        config['chroma_threshold'] = float(chroma_thresh_match.group(1))
+
+    chroma_smooth_match = re.search(r'export const FLOWER_CHROMA_SMOOTHNESS = ([\d\.]+);', content)
+    if chroma_smooth_match:
+        config['chroma_smoothness'] = float(chroma_smooth_match.group(1))
         
     return config
 
@@ -175,6 +180,10 @@ if __name__ == "__main__":
     default_grid = config.get('grid_width', 5)
     default_frames = default_grid * default_grid
     
+    # Chroma Defaults
+    chroma_threshold = config.get('chroma_threshold', 0.45)
+    chroma_smoothness = config.get('chroma_smoothness', 0.1)
+    
     parser = argparse.ArgumentParser(description='Generate flower sprite sheet.')
     parser.add_argument('--grid', type=int, default=default_grid, help=f'Number of columns in grid (default: {default_grid} from config.js)')
     args = parser.parse_args()
@@ -185,5 +194,8 @@ if __name__ == "__main__":
     print(f"  Source Video: {video_path}")
     print(f"  Grid: {args.grid}x{args.grid}")
     print(f"  Total Frames: {num_frames}")
+    print(f"  Chroma Threshold: {chroma_threshold}")
+    print(f"  Chroma Smoothness: {chroma_smoothness}")
     
-    process_video(video_path, output_path, num_frames=num_frames, grid_width=args.grid)
+    process_video(video_path, output_path, num_frames=num_frames, grid_width=args.grid, 
+                  chroma_threshold=chroma_threshold, chroma_smoothness=chroma_smoothness)
