@@ -15,7 +15,7 @@ export const BASE_SHORT_SIDE = Math.min(BASE_VIEWPORT.width, BASE_VIEWPORT.heigh
 // ASSETS & ANIMATION CONSTANTS
 // =============================================================================
 
-export const FLOWER_VIDEO_FILE = "./assets/flower_v2_smooth.mp4";
+export const FLOWER_VIDEO_FILE = "./assets/daisy_flower_smooth.mp4";
 
 // =============================================================================
 // MAIN CONFIGURATION OBJECT

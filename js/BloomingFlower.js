@@ -177,8 +177,8 @@ export class BloomingFlower {
         this.p.push();
         this.p.translate(this.center.x, this.center.y);
         const rotation = this.rotationMaxRad
-            ? this.rotationMaxRad * this.p.pow(this.activation, this.rotationExponent)
-            : 0;
+            ? this.p.PI + this.rotationMaxRad * (this.p.pow(this.activation, this.rotationExponent) - 1)
+            : this.p.PI;
         this.p.rotate(rotation);
         this.p.imageMode(this.p.CENTER);
 
