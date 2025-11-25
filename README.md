@@ -7,7 +7,7 @@ Simple vector-field background for the site.
 
        ↗       ↑       ↖
 
-         →     ·     ←
+         →     🌸     ←
 
        ↘       ↓       ↙
 

@@ -5,7 +5,7 @@ export class VectorField {
     constructor(p, {
         spacing = 50,
         arrowLen = 16,
-        repelRadius = 110,
+        // repelRadius = 110, // REMOVED: No longer used globally
         cursorClearRadius = 0,
         cursorClearFeather = 0,
         stiffness = 0.08,
@@ -26,7 +26,7 @@ export class VectorField {
         this.p = p;
         this.spacing = spacing;
         this.arrowLen = arrowLen;
-        this.repelRadius = repelRadius;
+        // this.repelRadius = repelRadius; // REMOVED
         this.cursorClearRadius = cursorClearRadius;
         this.cursorClearFeather = cursorClearFeather;
 
@@ -114,7 +114,7 @@ export class VectorField {
     applyResponsiveConfig(config) {
         this.spacing = config.spacing;
         this.arrowLen = config.arrowLen;
-        this.repelRadius = config.repelRadius;
+        // this.repelRadius = config.repelRadius; // REMOVED
         this.cursorClearRadius = config.cursorClearRadius ?? this.cursorClearRadius;
         this.cursorClearFeather = config.cursorClearFeather ?? this.cursorClearFeather;
         this.falloffMultiplier = config.falloffMultiplier;
@@ -133,7 +133,7 @@ export class VectorField {
     // PHYSICS & UPDATE
     // =========================================================================
 
-    updateAndDraw(mx, my, revealTarget) {
+    updateAndDraw(mx, my, revealTargets = []) {
         const curMouse = this.p.createVector(mx, my);
         if (!this._mouseInit) {
             this.smoothedMouse.set(curMouse);
@@ -144,83 +144,159 @@ export class VectorField {
         const m = this.smoothedMouse;
         const pointerPresence = this._updatePointerPresence();
 
-        const holeData = revealTarget
-            ? revealTarget.computeHole(m.copy(), this.repelRadius)
-            : null;
+        // 1. Compute hole data for all targets
+        // We handle single target or array for backward compatibility, though we expect array now.
+        const targets = Array.isArray(revealTargets) ? revealTargets : (revealTargets ? [revealTargets] : []);
 
-        const holeCenter = holeData?.center ?? m;
-        const baseHoleRadius = holeData?.radius ?? this.repelRadius;
-        const holeRadius = baseHoleRadius * pointerPresence;
-        const falloffRange = holeRadius * this.falloffMultiplier;
-        const outerRadius = holeRadius + falloffRange;
-        const boundaryPush = falloffRange * this.outerStrength;
+        const activeHoles = [];
+        for (const target of targets) {
+            const data = target.computeHole(m.copy()); // Removed this.repelRadius
+            if (data) {
+                activeHoles.push(data);
+            }
+        }
 
-        const holeClearRadius = holeData?.clearRadius ?? 0;
-        const holeClearFeather = holeData?.clearFeather ?? 0;
-        const cursorClearRadius = this.cursorClearRadius * pointerPresence;
-        const cursorClearFeather = this.cursorClearFeather * pointerPresence;
-        const clearRadius = Math.max(holeClearRadius, cursorClearRadius);
-        const clearFeather = Math.max(holeClearFeather, cursorClearFeather);
+        // Pre-calculate hole properties to avoid re-calc in loop
+        const holes = activeHoles.map(h => {
+            const holeCenter = h.center;
+            const baseHoleRadius = h.radius;
+            const holeRadius = baseHoleRadius * pointerPresence;
+            const falloffRange = holeRadius * this.falloffMultiplier;
+            const outerRadius = holeRadius + falloffRange;
+            const boundaryPush = falloffRange * this.outerStrength;
+
+            const holeClearRadius = h.clearRadius;
+            const holeClearFeather = h.clearFeather;
+
+            return {
+                center: holeCenter,
+                holeRadius,
+                falloffRange,
+                outerRadius,
+                boundaryPush,
+                holeClearRadius,
+                holeClearFeather
+            };
+        });
+
+        // Calculate the maximum activation to blend cursor repulsion
+        let maxActivation = 0;
+        for (const hole of activeHoles) {
+            if (hole.activation > maxActivation) {
+                maxActivation = hole.activation;
+            }
+        }
+
+        // As maxActivation approaches 1 (fully bloomed/close), blendingFactor approaches 0 (no cursor repulsion)
+        const blendingFactor = 1 - maxActivation;
+
+        const cursorClearRadius = this.cursorClearRadius * pointerPresence * blendingFactor;
+        const cursorClearFeather = this.cursorClearFeather * pointerPresence * blendingFactor;
 
         for (let i = 0; i < this.base.length; i++) {
             const base = this.base[i];
             const pos = this.pos[i];
             const vel = this.vel[i];
 
-            this._tmpDiff.set(base);
-            this._tmpDiff.sub(holeCenter);
-
-            const d = this._tmpDiff.mag();
-
             this._tmpTarget.set(base);
 
-            if (d < outerRadius) {
-                if (d > this.directionEpsilon) {
-                    this._tmpDir.set(this._tmpDiff);
-                    this._tmpDir.mult(1 / d);
-                } else {
-                    this._tmpDir.set(1, 0);
-                }
+            // Accumulate forces from all holes
+            for (const hole of holes) {
+                this._tmpDiff.set(base);
+                this._tmpDiff.sub(hole.center);
+                const d = this._tmpDiff.mag();
 
-                if (d < holeRadius) {
-                    const insideNorm = this.p.constrain((holeRadius - d) / holeRadius, 0, 1);
-                    const eased = 1 - Math.exp(-this.innerEase * insideNorm);
-                    const push = boundaryPush + falloffRange * this.innerExtraStrength * eased;
+                if (d < hole.outerRadius) {
+                    if (d > this.directionEpsilon) {
+                        this._tmpDir.set(this._tmpDiff);
+                        this._tmpDir.mult(1 / d);
+                    } else {
+                        this._tmpDir.set(1, 0);
+                    }
 
-                    this._tmpDir.mult(push);
-                    this._tmpTarget.add(this._tmpDir);
-                } else {
-                    const falloffNorm = this.p.constrain((outerRadius - d) / falloffRange, 0, 1);
-                    const eased = this.p.pow(falloffNorm, this.outerFalloffExponent);
-                    const push = falloffRange * this.outerStrength * eased;
+                    if (d < hole.holeRadius) {
+                        const insideNorm = this.p.constrain((hole.holeRadius - d) / hole.holeRadius, 0, 1);
+                        const eased = 1 - Math.exp(-this.innerEase * insideNorm);
+                        const push = hole.boundaryPush + hole.falloffRange * this.innerExtraStrength * eased;
 
-                    if (push > this.pushEpsilon) {
                         this._tmpDir.mult(push);
+                        this._tmpTarget.add(this._tmpDir);
+                    } else {
+                        const falloffNorm = this.p.constrain((hole.outerRadius - d) / hole.falloffRange, 0, 1);
+                        const eased = this.p.pow(falloffNorm, this.outerFalloffExponent);
+                        const push = hole.falloffRange * this.outerStrength * eased;
+
+                        if (push > this.pushEpsilon) {
+                            this._tmpDir.mult(push);
+                            this._tmpTarget.add(this._tmpDir);
+                        }
+                    }
+                }
+            }
+
+            // Apply clearing (max effect from any source)
+            // We check against cursor clear and all hole clears
+            // For simplicity and performance, we can just check if we are inside any clear zone
+            // But we need to calculate the push.
+            // Let's handle cursor clear first
+            // 1. Cursor Clear
+            if (cursorClearRadius > 0) {
+                this._tmpDiff.set(base);
+                this._tmpDiff.sub(m); // m is smoothedMouse
+                const d = this._tmpDiff.mag();
+                if (d < cursorClearRadius + cursorClearFeather) {
+                    if (d > this.directionEpsilon) {
+                        this._tmpDir.set(this._tmpDiff);
+                        this._tmpDir.mult(1 / d);
+                    } else {
+                        this._tmpDir.set(1, 0);
+                    }
+
+                    let exclusionPush = 0;
+                    if (d < cursorClearRadius) {
+                        exclusionPush = cursorClearRadius - d;
+                    } else if (cursorClearFeather > 0) {
+                        const t = 1 - (d - cursorClearRadius) / cursorClearFeather;
+                        const eased = t * t;
+                        exclusionPush = cursorClearFeather * eased * 0.6;
+                    }
+
+                    if (exclusionPush > 0) {
+                        this._tmpDir.mult(exclusionPush);
                         this._tmpTarget.add(this._tmpDir);
                     }
                 }
             }
 
-            if (clearRadius > 0 && d < clearRadius + clearFeather) {
-                if (d > this.directionEpsilon) {
-                    this._tmpDir.set(this._tmpDiff);
-                    this._tmpDir.mult(1 / d);
-                } else {
-                    this._tmpDir.set(1, 0);
-                }
+            // 2. Hole Clears
+            for (const hole of holes) {
+                if (hole.holeClearRadius > 0) {
+                    this._tmpDiff.set(base);
+                    this._tmpDiff.sub(hole.center);
+                    const d = this._tmpDiff.mag();
 
-                let exclusionPush = 0;
-                if (d < clearRadius) {
-                    exclusionPush = clearRadius - d;
-                } else if (clearFeather > 0) {
-                    const t = 1 - (d - clearRadius) / clearFeather;
-                    const eased = t * t;
-                    exclusionPush = clearFeather * eased * 0.6;
-                }
+                    if (d < hole.holeClearRadius + hole.holeClearFeather) {
+                        if (d > this.directionEpsilon) {
+                            this._tmpDir.set(this._tmpDiff);
+                            this._tmpDir.mult(1 / d);
+                        } else {
+                            this._tmpDir.set(1, 0);
+                        }
 
-                if (exclusionPush > 0) {
-                    this._tmpDir.mult(exclusionPush);
-                    this._tmpTarget.add(this._tmpDir);
+                        let exclusionPush = 0;
+                        if (d < hole.holeClearRadius) {
+                            exclusionPush = hole.holeClearRadius - d;
+                        } else if (hole.holeClearFeather > 0) {
+                            const t = 1 - (d - hole.holeClearRadius) / hole.holeClearFeather;
+                            const eased = t * t;
+                            exclusionPush = hole.holeClearFeather * eased * 0.6;
+                        }
+
+                        if (exclusionPush > 0) {
+                            this._tmpDir.mult(exclusionPush);
+                            this._tmpTarget.add(this._tmpDir);
+                        }
+                    }
                 }
             }
 

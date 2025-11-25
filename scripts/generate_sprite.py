@@ -4,7 +4,7 @@ import math
 import argparse
 import os
 
-def process_video(video_path, output_path, num_frames=25, grid_width=None, chroma_threshold=0.45, chroma_smoothness=0.1):
+def process_video(video_path, output_path, num_frames=25, grid_width=None, key_color=[255, 0, 2], chroma_threshold=0.45, chroma_smoothness=0.1):
     if not os.path.exists(video_path):
         print(f"Error: Video file not found at {video_path}")
         return
@@ -22,14 +22,8 @@ def process_video(video_path, output_path, num_frames=25, grid_width=None, chrom
     
     frames = []
     
-    # Chroma key settings (matching the shader/config)
-    # Config: [2/255, 0.0, 1.0] -> B=255, G=0, R=2 (OpenCV uses BGR)
-    key_color = np.array([255, 0, 2]) 
-    
-    # Max distance in 3D RGB space (sqrt(255^2 * 3)) = 441.67
-    
-    # Let's refine the keying to be robust.
-    # The user wants "sfondi gia tagliati".
+    # Chroma key settings
+    key_color_np = np.array(key_color) 
     
     print("Extracting and processing frames...")
     
@@ -58,29 +52,18 @@ def process_video(video_path, output_path, num_frames=25, grid_width=None, chrom
         
         # Calculate distance to key color
         # key_color is BGR
-        diff = frame_float - key_color
+        diff = frame_float - key_color_np
         dist = np.sqrt(np.sum(diff**2, axis=2))
-        
-        # Thresholding
-        # Shader: smoothstep(threshold, threshold + smoothness, dist)
-        # We want alpha 0 if close to key, 1 if far.
-        # Wait, shader logic:
-        # float dist = length(color.rgb - keyColor);
-        # float alpha = smoothstep(threshold, threshold + smoothness, dist);
-        # So if dist < threshold, alpha is 0 (transparent).
         
         thresh_val = chroma_threshold * 441.67 
         smooth_val = chroma_smoothness * 441.67
         
         alpha = np.clip((dist - thresh_val) / smooth_val, 0, 1)
         
-        # Spill suppression (Blue channel clamping)
-        # if (color.b > max(color.r, color.g)) color.b = max(color.r, color.g)
         b, g, r = cv2.split(frame_float)
         max_rg = np.maximum(r, g)
         b_clamped = np.where(b > max_rg, max_rg, b)
         
-        # Recombine
         # Convert all to uint8
         b_out = b_clamped.astype(np.uint8)
         g_out = g.astype(np.uint8)
@@ -129,73 +112,52 @@ def process_video(video_path, output_path, num_frames=25, grid_width=None, chrom
     cv2.imwrite(output_path, sprite_sheet, [cv2.IMWRITE_WEBP_QUALITY, 90])
     print("Done!")
 
-import re
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
 
-def load_config(config_path):
-    """Parses js/config.js to extract FLOWER_FRAME_COUNT and FLOWER_GRID_COLS."""
-    config = {}
-    if not os.path.exists(config_path):
-        print(f"Warning: Config file not found at {config_path}")
-        return config
-        
-    with open(config_path, 'r') as f:
-        content = f.read()
-        
-    # Regex to find exported constants
-    source_video_match = re.search(r'export const FLOWER_SOURCE_VIDEO = "(.*?)";', content)
-    if source_video_match:
-        config['source_video'] = source_video_match.group(1)
+# Path to the input video file
+INPUT_VIDEO_PATH = './assets/daisy_flower.mp4'
 
-    grid_cols_match = re.search(r'export const FLOWER_GRID_COLS = (\d+);', content)
-    if grid_cols_match:
-        config['grid_width'] = int(grid_cols_match.group(1))
+# Path to the output sprite sheet
+OUTPUT_SPRITE_PATH = './assets/flower_sprite.webp'
 
-    chroma_thresh_match = re.search(r'export const FLOWER_CHROMA_THRESHOLD = ([\d\.]+);', content)
-    if chroma_thresh_match:
-        config['chroma_threshold'] = float(chroma_thresh_match.group(1))
+# Number of columns in the sprite sheet grid
+GRID_COLS = 6
 
-    chroma_smooth_match = re.search(r'export const FLOWER_CHROMA_SMOOTHNESS = ([\d\.]+);', content)
-    if chroma_smooth_match:
-        config['chroma_smoothness'] = float(chroma_smooth_match.group(1))
-        
-    return config
+# Chroma key color (BGR format for OpenCV: [Blue, Green, Red])
+# Default: [255, 0, 2] (Blue=255, Green=0, Red=2)
+CHROMA_KEY_COLOR = [255, 0, 2]
+
+# Chroma key threshold (0.0 - 1.0)
+CHROMA_THRESHOLD = 0.45
+
+# Chroma key smoothness (0.0 - 1.0)
+CHROMA_SMOOTHNESS = 0.1
 
 if __name__ == "__main__":
-    # Paths
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    config_path = os.path.join(base_dir, 'js', 'config.js')
     
-    # Load defaults from config.js
-    config = load_config(config_path)
-    
-    # Determine video path: Config > Default
-    video_rel_path = config.get('source_video', './assets/daisy_flower.mp4')
-    # Clean up path if it starts with ./
+    video_rel_path = INPUT_VIDEO_PATH
     if video_rel_path.startswith('./'):
         video_rel_path = video_rel_path[2:]
     video_path = os.path.join(base_dir, video_rel_path)
     
-    output_path = os.path.join(base_dir, 'assets', 'flower_sprite.webp')
+    output_rel_path = OUTPUT_SPRITE_PATH
+    if output_rel_path.startswith('./'):
+        output_rel_path = output_rel_path[2:]
+    output_path = os.path.join(base_dir, output_rel_path)
     
-    default_grid = config.get('grid_width', 5)
-    default_frames = default_grid * default_grid
+    num_frames = GRID_COLS * GRID_COLS
     
-    # Chroma Defaults
-    chroma_threshold = config.get('chroma_threshold', 0.45)
-    chroma_smoothness = config.get('chroma_smoothness', 0.1)
-    
-    parser = argparse.ArgumentParser(description='Generate flower sprite sheet.')
-    parser.add_argument('--grid', type=int, default=default_grid, help=f'Number of columns in grid (default: {default_grid} from config.js)')
-    args = parser.parse_args()
-    
-    num_frames = args.grid * args.grid
-    
-    print(f"Configuration loaded from {config_path}")
+    print(f"Configuration:")
     print(f"  Source Video: {video_path}")
-    print(f"  Grid: {args.grid}x{args.grid}")
+    print(f"  Output: {output_path}")
+    print(f"  Grid: {GRID_COLS}x{GRID_COLS}")
     print(f"  Total Frames: {num_frames}")
-    print(f"  Chroma Threshold: {chroma_threshold}")
-    print(f"  Chroma Smoothness: {chroma_smoothness}")
+    print(f"  Chroma Key Color (BGR): {CHROMA_KEY_COLOR}")
+    print(f"  Chroma Threshold: {CHROMA_THRESHOLD}")
+    print(f"  Chroma Smoothness: {CHROMA_SMOOTHNESS}")
     
-    process_video(video_path, output_path, num_frames=num_frames, grid_width=args.grid, 
-                  chroma_threshold=chroma_threshold, chroma_smoothness=chroma_smoothness)
+    process_video(video_path, output_path, num_frames=num_frames, grid_width=GRID_COLS, 
+                  key_color=CHROMA_KEY_COLOR, chroma_threshold=CHROMA_THRESHOLD, chroma_smoothness=CHROMA_SMOOTHNESS)

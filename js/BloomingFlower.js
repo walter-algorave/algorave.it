@@ -6,6 +6,7 @@ export class BloomingFlower {
         {
             radius = 50,
             revealRadius = 220,
+            initialHoleRadius = 0,
             holePadding = 30,
             clearRadius = 0,
             clearFeather = 0,
@@ -25,14 +26,16 @@ export class BloomingFlower {
             glowGain = 0.65,
             bodyScaleBase = 0.55,
             bodyScaleGain = 0.35,
-            frameCount = 25,
-            gridCols = 5
+            gridCols = 5,
+            x, // Absolute x position
+            y  // Absolute y position
         } = {},
         spriteImage
     ) {
         this.p = p;
         this.radius = radius;
         this.revealRadius = revealRadius;
+        this.initialHoleRadius = initialHoleRadius;
         this.holePadding = holePadding;
         this.clearRadius = clearRadius;
         this.clearFeather = clearFeather;
@@ -53,12 +56,16 @@ export class BloomingFlower {
         this.glowGain = glowGain;
         this.bodyScaleBase = bodyScaleBase;
         this.bodyScaleGain = bodyScaleGain;
-        this.frameCount = frameCount;
         this.gridCols = gridCols;
+        this.frameCount = gridCols * gridCols;
 
         this.spriteImage = spriteImage;
 
-        this.center = p.createVector(p.width / 2, p.height / 2);
+        // Use provided position or default to center
+        this.initialX = x;
+        this.initialY = y;
+        this.center = p.createVector(x ?? p.width / 2, y ?? p.height / 2);
+
         this.proximity = 0;
         this.activation = 0;
         this.visible = false;
@@ -74,21 +81,28 @@ export class BloomingFlower {
         if (this.rotationMaxDegrees !== undefined) {
             this.rotationMaxRad = this.p.radians(this.rotationMaxDegrees);
         }
-        this.handleResize();
+        // Update position from config if provided (responsive recalculation)
+        if (config.x !== undefined && config.y !== undefined) {
+            this.center.set(config.x, config.y);
+        } else {
+            this.handleResize();
+        }
         this._hole = null;
     }
 
     handleResize() {
-        this.center.set(this.p.width / 2, this.p.height / 2);
+        // If no specific position is set, center it. 
+        // But usually applyResponsiveConfig will handle this.
+        if (this.initialX === undefined) {
+            this.center.set(this.p.width / 2, this.p.height / 2);
+        }
     }
 
     // =========================================================================
     // LOGIC & CALCULATION
     // =========================================================================
 
-    computeHole(mouseVec, baseRepel) {
-        this.center.set(this.p.width / 2, this.p.height / 2);
-
+    computeHole(mouseVec) { // Removed baseRepel arg
         const dist = this.p.dist(mouseVec.x, mouseVec.y, this.center.x, this.center.y);
         this.proximity = this.p.constrain(1 - dist / this.revealRadius, 0, 1);
 
@@ -127,13 +141,14 @@ export class BloomingFlower {
         }
 
         const targetRadius = this.radius + this.holePadding;
-        const radius = this.p.lerp(baseRepel, targetRadius, this.activation);
+        // Use this.initialHoleRadius as the starting point
+        const radius = this.p.lerp(this.initialHoleRadius, targetRadius, this.activation);
         const center = mouseVec.copy().lerp(this.center, this.activation);
 
         const clearRadius = this.clearRadius * this.activation;
         const clearFeather = this.clearFeather;
 
-        this._hole = { center, radius, clearRadius, clearFeather };
+        this._hole = { center, radius, clearRadius, clearFeather, activation: this.activation };
         return this._hole;
     }
 
@@ -202,10 +217,7 @@ export class BloomingFlower {
         const sy = row * frameHeight;
 
         this.p.tint(255, alpha);
-        // image(img, dx, dy, dWidth, dHeight, sx, sy, sWidth, sHeight)
-        // Since we use imageMode(CENTER), dx, dy are 0, 0 (relative to translate)
-        // But wait, p5 imageMode CENTER affects the destination box center.
-        // So we draw at 0,0 with size, size.
+        // Draw the frame from the sprite sheet
         this.p.image(
             this.spriteImage,
             0, 0,

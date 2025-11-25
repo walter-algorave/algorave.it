@@ -12,17 +12,6 @@ export const BASE_DIAGONAL = Math.hypot(BASE_VIEWPORT.width, BASE_VIEWPORT.heigh
 export const BASE_SHORT_SIDE = Math.min(BASE_VIEWPORT.width, BASE_VIEWPORT.height);
 
 // =============================================================================
-// ASSETS & ANIMATION CONSTANTS FOR PYTHON SCRIPT
-// =============================================================================
-
-export const FLOWER_SPRITE_FILE = "./assets/flower_sprite.webp";
-export const FLOWER_SOURCE_VIDEO = "./assets/daisy_flower.mp4";
-export const FLOWER_GRID_COLS = 6;
-export const FLOWER_FRAME_COUNT = FLOWER_GRID_COLS * FLOWER_GRID_COLS;
-export const FLOWER_CHROMA_THRESHOLD = 0.45;
-export const FLOWER_CHROMA_SMOOTHNESS = 0.1;
-
-// =============================================================================
 // MAIN CONFIGURATION OBJECT
 // =============================================================================
 
@@ -44,14 +33,14 @@ export const CONFIG = {
         spacingRatio: 45 / BASE_VIEWPORT.width,
         // Ratio of arrow length relative to the spacing.
         arrowLenSpacingRatio: 16 / 45,
-        // Ratio of the repulsion radius relative to the spacing.
-        repelRadiusSpacingRatio: 50 / 45,
-        // Ratio of the cursor repulsion radius relative to the spacing.
-        cursorRepelRadiusSpacingRatio: 50 / 45,
-        // Ratio of the cursor clearing radius relative to the spacing.
-        cursorClearSpacingRatio: 30.8 / 45,
-        // Ratio of the cursor clearing feathering relative to the spacing.
-        cursorClearFeatherSpacingRatio: 20 / 45,
+        // --- CURSOR INTERACTION (The "Hole" around the mouse) ---
+        cursor: {
+            // Ratio of the cursor clearing radius relative to the spacing.
+            clearRadiusSpacingRatio: 60 / 45,
+            // Ratio of the cursor clearing feathering relative to the spacing.
+            clearFeatherSpacingRatio: 20 / 45,
+        },
+        // --- PHYSICS ---
         // Stiffness of the arrow spring physics (higher = stiffer).
         stiffness: 0.075,
         // Damping factor for arrow movement (lower = more oscillation).
@@ -103,17 +92,20 @@ export const CONFIG = {
         }
     },
     // Configuration for the blooming flower behavior and appearance.
+    // This object serves as the default template for all flowers.
     flower: {
         // Ratio of the flower radius relative to the base short side.
         radiusRatio: 122 / BASE_SHORT_SIDE,
         // Ratio of the reveal radius relative to the base diagonal.
-        revealRadiusDiagonalRatio: 180 / BASE_DIAGONAL,
+        revealRadiusDiagonalRatio: 140 / BASE_DIAGONAL,
         // Ratio of the hole padding relative to the base short side.
-        holePaddingRatio: 120 / BASE_SHORT_SIDE,
+        holePaddingRatio: 70 / BASE_SHORT_SIDE,
         // Ratio of the clear radius relative to the base short side.
-        clearRadiusRatio: 40 / BASE_SHORT_SIDE,
+        clearRadiusRatio: 100 / BASE_SHORT_SIDE,
         // Ratio of the clear feathering relative to the base short side.
-        clearFeatherRatio: 70 / BASE_SHORT_SIDE,
+        clearFeatherRatio: 60 / BASE_SHORT_SIDE,
+        // Ratio of the initial hole radius (when starting to bloom) relative to the base short side.
+        initialHoleRadiusRatio: 20 / BASE_SHORT_SIDE,
         // Threshold for starting the reveal animation.
         revealStart: 0.20,
         // Minimum interpolation rate for activation.
@@ -146,11 +138,29 @@ export const CONFIG = {
         bodyScaleBase: 0.45,
         // Gain factor for the flower body scale.
         bodyScaleGain: 0.35,
-        // Number of frames in the sprite sheet.
-        frameCount: FLOWER_FRAME_COUNT,
         // Number of columns in the sprite sheet grid.
-        gridCols: FLOWER_GRID_COLS
-    }
+        gridCols: 6,
+
+    },
+    // Array of flower instances to display.
+    flowers: [
+        {
+            id: 'flower-1',
+            sprite: './assets/daisy_sprite.webp',
+            x: 0.35,
+            y: 0.5,
+            gridCols: 6,
+
+        },
+        {
+            id: 'flower-2',
+            sprite: './assets/rose_sprite.webp',
+            x: 0.65,
+            y: 0.5,
+            gridCols: 6,
+
+        }
+    ]
 };
 
 // =============================================================================
@@ -187,12 +197,13 @@ export function buildResponsiveFieldConfig(p, base) {
     const {
         spacingRatio,
         arrowLenSpacingRatio,
-        repelRadiusSpacingRatio,
-        cursorRepelRadiusSpacingRatio,
-        cursorClearSpacingRatio,
-        cursorClearFeatherSpacingRatio,
+        // repelRadiusSpacingRatio, // REMOVED
+        // cursorRepelRadiusSpacingRatio, // REMOVED
+        // cursorClearSpacingRatio, // MOVED to cursor object
+        // cursorClearFeatherSpacingRatio, // MOVED to cursor object
         falloffMultiplier,
         densityCompensation,
+        cursor, // New cursor object
         ...rest
     } = base;
 
@@ -204,16 +215,21 @@ export function buildResponsiveFieldConfig(p, base) {
         ...rest,
         spacing,
         arrowLen: spacing * arrowLenSpacingRatio,
-        repelRadius: spacing * (cursorRepelRadiusSpacingRatio ?? repelRadiusSpacingRatio),
-        cursorClearRadius: spacing * (cursorClearSpacingRatio ?? 0),
-        cursorClearFeather: spacing * (cursorClearFeatherSpacingRatio ?? 0),
-        falloffMultiplier: falloffMultiplier * reachScale
+        // repelRadius: spacing * (cursorRepelRadiusSpacingRatio ?? repelRadiusSpacingRatio), // REMOVED
+        cursorClearRadius: spacing * (cursor?.clearRadiusSpacingRatio ?? 0),
+        cursorClearFeather: spacing * (cursor?.clearFeatherSpacingRatio ?? 0),
+        falloffMultiplier: falloffMultiplier * reachScale,
+        pointerPresence: base.pointerPresence // Ensure this is passed through
     };
 }
 
-// Builds the responsive configuration for the flower.
-export function buildResponsiveFlowerConfig(p, base) {
+// Builds the responsive configuration for a single flower instance.
+export function buildResponsiveFlowerConfig(p, base, instanceConfig) {
     const { layoutScale, reachScale } = computeViewportMetrics(p);
+
+    // Merge base and instance config so overrides take precedence
+    const merged = { ...base, ...instanceConfig };
+
     const {
         radiusRatio,
         revealRadiusDiagonalRatio,
@@ -221,7 +237,7 @@ export function buildResponsiveFlowerConfig(p, base) {
         clearRadiusRatio,
         clearFeatherRatio,
         ...rest
-    } = base;
+    } = merged;
 
     const radiusPx = radiusRatio * BASE_SHORT_SIDE;
     const holePaddingPx = holePaddingRatio * BASE_SHORT_SIDE;
@@ -235,15 +251,20 @@ export function buildResponsiveFlowerConfig(p, base) {
         revealRadius: revealRadiusPx * reachScale,
         holePadding: holePaddingPx * layoutScale,
         clearRadius: clearRadiusPx * layoutScale,
-        clearFeather: clearFeatherPx * layoutScale
+        clearFeather: clearFeatherPx * layoutScale,
+        initialHoleRadius: (merged.initialHoleRadiusRatio * BASE_SHORT_SIDE) * layoutScale,
+        // Calculate absolute position if x/y are provided as ratios
+        x: instanceConfig.x !== undefined ? instanceConfig.x * p.width : undefined,
+        y: instanceConfig.y !== undefined ? instanceConfig.y * p.height : undefined
     };
 }
 
 // Aggregates and builds all responsive configurations.
 export function buildResponsiveConfigs(p) {
+    const flowers = CONFIG.flowers.map(f => buildResponsiveFlowerConfig(p, CONFIG.flower, f));
     return {
         field: buildResponsiveFieldConfig(p, CONFIG.field),
-        flower: buildResponsiveFlowerConfig(p, CONFIG.flower)
+        flowers: flowers
     };
 }
 
