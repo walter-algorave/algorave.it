@@ -115,9 +115,7 @@ export const CONFIG = {
         // Ratio of the clear feathering relative to the base short side.
         clearFeatherRatio: 70 / BASE_SHORT_SIDE,
         // Threshold for starting the reveal animation.
-        revealStart: 0.25,
-        // Offset for visibility during the reveal animation.
-        revealVisibleOffset: 0.04,
+        revealStart: 0.20,
         // Minimum interpolation rate for activation.
         activationLerpMinRate: 0.025,
         // Maximum interpolation rate for activation.
@@ -139,7 +137,7 @@ export const CONFIG = {
         // Exponent for rotation easing.
         rotationExponent: 1.4,
         // Exponent for frame progress easing.
-        frameProgressExponent: 0.7,
+        frameProgressExponent: 0.8,
         // Base intensity for the glow effect.
         glowBase: 0.45,
         // Gain factor for the glow effect.
