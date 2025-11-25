@@ -58,7 +58,11 @@ const sketch = (p) => {
         bloomingFlowers = flowerConfigs.map(config => {
             // Retrieve the loaded sprite for this flower
             const sprite = loadedSprites.get(config.sprite);
-            return new BloomingFlower(p, config, sprite);
+            const flower = new BloomingFlower(p, config, sprite);
+            // Snap to grid
+            const snapped = field.getNearestGridCenter(flower.center.x, flower.center.y);
+            flower.center.set(snapped.x, snapped.y);
+            return flower;
         });
 
         p.background(CONFIG.canvas.background);
@@ -104,12 +108,19 @@ const sketch = (p) => {
         if (bloomingFlowers.length === flowerConfigs.length) {
             for (let i = 0; i < bloomingFlowers.length; i++) {
                 bloomingFlowers[i].applyResponsiveConfig(flowerConfigs[i]);
+                // Snap to grid
+                const snapped = field.getNearestGridCenter(bloomingFlowers[i].center.x, bloomingFlowers[i].center.y);
+                bloomingFlowers[i].center.set(snapped.x, snapped.y);
             }
         } else {
             // Re-init if count changed
             bloomingFlowers = flowerConfigs.map(config => {
                 const sprite = loadedSprites.get(config.sprite);
-                return new BloomingFlower(p, config, sprite);
+                const flower = new BloomingFlower(p, config, sprite);
+                // Snap to grid
+                const snapped = field.getNearestGridCenter(flower.center.x, flower.center.y);
+                flower.center.set(snapped.x, snapped.y);
+                return flower;
             });
         }
     };

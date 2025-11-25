@@ -5,7 +5,6 @@ export class VectorField {
     constructor(p, {
         spacing = 50,
         arrowLen = 16,
-        // repelRadius = 110, // REMOVED: No longer used globally
         cursorClearRadius = 0,
         cursorClearFeather = 0,
         stiffness = 0.08,
@@ -26,7 +25,6 @@ export class VectorField {
         this.p = p;
         this.spacing = spacing;
         this.arrowLen = arrowLen;
-        // this.repelRadius = repelRadius; // REMOVED
         this.cursorClearRadius = cursorClearRadius;
         this.cursorClearFeather = cursorClearFeather;
 
@@ -99,6 +97,9 @@ export class VectorField {
         const x0 = (this.p.width - totalWidth) / 2;
         const y0 = (this.p.height - totalHeight) / 2;
 
+        this.gridX0 = x0;
+        this.gridY0 = y0;
+
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
                 const px = x0 + c * this.spacing;
@@ -111,10 +112,29 @@ export class VectorField {
         }
     }
 
+    getNearestGridCenter(x, y) {
+        if (this.gridX0 === undefined || this.gridY0 === undefined) {
+            return { x, y };
+        }
+
+        // The center of 4 arrows (a cell) is at ((col + 0.5) * spacing, (row + 0.5) * spacing).
+
+        const relativeX = x - this.gridX0;
+        const relativeY = y - this.gridY0;
+
+        // A cell i,j has center at (i + 0.5) * spacing, (j + 0.5) * spacing
+        const col = Math.round((relativeX / this.spacing) - 0.5);
+        const row = Math.round((relativeY / this.spacing) - 0.5);
+
+        const centerX = this.gridX0 + (col + 0.5) * this.spacing;
+        const centerY = this.gridY0 + (row + 0.5) * this.spacing;
+
+        return { x: centerX, y: centerY };
+    }
+
     applyResponsiveConfig(config) {
         this.spacing = config.spacing;
         this.arrowLen = config.arrowLen;
-        // this.repelRadius = config.repelRadius; // REMOVED
         this.cursorClearRadius = config.cursorClearRadius ?? this.cursorClearRadius;
         this.cursorClearFeather = config.cursorClearFeather ?? this.cursorClearFeather;
         this.falloffMultiplier = config.falloffMultiplier;
@@ -234,15 +254,9 @@ export class VectorField {
                 }
             }
 
-            // Apply clearing (max effect from any source)
-            // We check against cursor clear and all hole clears
-            // For simplicity and performance, we can just check if we are inside any clear zone
-            // But we need to calculate the push.
-            // Let's handle cursor clear first
-            // 1. Cursor Clear
             if (cursorClearRadius > 0) {
                 this._tmpDiff.set(base);
-                this._tmpDiff.sub(m); // m is smoothedMouse
+                this._tmpDiff.sub(m);
                 const d = this._tmpDiff.mag();
                 if (d < cursorClearRadius + cursorClearFeather) {
                     if (d > this.directionEpsilon) {
@@ -268,7 +282,6 @@ export class VectorField {
                 }
             }
 
-            // 2. Hole Clears
             for (const hole of holes) {
                 if (hole.holeClearRadius > 0) {
                     this._tmpDiff.set(base);

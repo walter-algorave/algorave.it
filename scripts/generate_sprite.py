@@ -117,10 +117,10 @@ def process_video(video_path, output_path, num_frames=25, grid_width=None, key_c
 # ==============================================================================
 
 # Path to the input video file
-INPUT_VIDEO_PATH = './assets/daisy_flower.mp4'
+INPUT_VIDEO_PATH = './assets/rose_flower.mp4'
 
 # Path to the output sprite sheet
-OUTPUT_SPRITE_PATH = './assets/flower_sprite.webp'
+OUTPUT_SPRITE_PATH = './assets/rose_sprite.webp'
 
 # Number of columns in the sprite sheet grid
 GRID_COLS = 6
