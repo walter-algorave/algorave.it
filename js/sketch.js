@@ -1,7 +1,6 @@
 import {
     CONFIG,
-    FLOWER_SPRITE_FILE,
-    FLOWER_FRAME_COUNT,
+    FLOWER_VIDEO_FILE,
     buildResponsiveConfigs
 } from "./config.js";
 import { VectorField } from "./VectorField.js";
@@ -14,14 +13,20 @@ import { BloomingFlower } from "./BloomingFlower.js";
 const sketch = (p) => {
     let field;
     let bloomingFlower;
-    let flowerSprite;
+    let flowerVideo;
+
+    // -------------------------------------------------------------------------
+    // SETUP
+    // -------------------------------------------------------------------------
+
+    let chromaShader;
 
     // -------------------------------------------------------------------------
     // PRELOAD
     // -------------------------------------------------------------------------
 
     p.preload = () => {
-        flowerSprite = p.loadImage(FLOWER_SPRITE_FILE);
+        chromaShader = p.loadShader('./shaders/chroma.vert', './shaders/chroma.frag');
     };
 
     // -------------------------------------------------------------------------
@@ -40,13 +45,17 @@ const sketch = (p) => {
         p.stroke(CONFIG.canvas.strokeColor);
         p.noFill();
 
+        // Load video
+        flowerVideo = p.createVideo(FLOWER_VIDEO_FILE);
+        flowerVideo.hide(); // Hide the DOM element
+
         const { field: fieldConfig, flower: flowerConfig } = buildResponsiveConfigs(p);
         const baseSpacing = CONFIG.field.spacingRatio * 2560;
         const spacingRatio = fieldConfig.spacing / baseSpacing;
         p.strokeWeight(CONFIG.canvas.strokeWeight * spacingRatio);
 
         field = new VectorField(p, fieldConfig);
-        bloomingFlower = new BloomingFlower(p, flowerConfig, flowerSprite, FLOWER_FRAME_COUNT);
+        bloomingFlower = new BloomingFlower(p, flowerConfig, flowerVideo, chromaShader);
 
         p.background(CONFIG.canvas.background);
 

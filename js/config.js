@@ -15,11 +15,7 @@ export const BASE_SHORT_SIDE = Math.min(BASE_VIEWPORT.width, BASE_VIEWPORT.heigh
 // ASSETS & ANIMATION CONSTANTS
 // =============================================================================
 
-// Path to the sprite sheet image for the flower animation.
-export const FLOWER_SPRITE_FILE = "assets/flower_sprite.webp";
-
-// Number of frames in the flower sprite sheet.
-export const FLOWER_FRAME_COUNT = 6;
+export const FLOWER_VIDEO_FILE = "./assets/daisy_flower_smooth.mp4";
 
 // =============================================================================
 // MAIN CONFIGURATION OBJECT
@@ -146,7 +142,22 @@ export const CONFIG = {
         // Base scale for the flower body.
         bodyScaleBase: 0.45,
         // Gain factor for the flower body scale.
-        bodyScaleGain: 0.35
+        bodyScaleGain: 0.35,
+        // RGB color to remove from the video (blue screen: #0200FF).
+        // Format: [R/255, G/255, B/255] where values are normalized to 0.0-1.0.
+        // THE CHROMA FRAG IS SET TO DEFAULT BLUE SO YOU HAVE TO CHANGE IT IN THE SHADER
+        chromakeyColor: [2 / 255, 0.0, 1.0],
+        // Distance threshold for chromakey effect. Pixels with color distance
+        // from keyColor below this value will be transparent. Higher values
+        // remove more blue but may affect the flower edges. Range: 0.0-1.0.
+        chromakeyThreshold: 0.60,
+        // Smoothness factor for chromakey edge blending. Controls the softness
+        // of the transition between transparent and opaque areas. Higher values
+        // create softer, more gradual transitions. Range: 0.0-1.0.
+        chromakeySmoothness: 0.3,
+        // Default size for the offscreen graphics buffer used for shader rendering.
+        // Used as fallback when video dimensions are not yet available.
+        offscreenBufferSize: 1024
     }
 };
 
