@@ -13,6 +13,7 @@ const sketch = (p) => {
     let field;
     let bloomingFlowers = [];
     let lastTouchTime = 0;
+    let lastFlowerInteractionTime = 0;
     // Map to store loaded sprites by ID or path
     const loadedSprites = new Map();
 
@@ -69,6 +70,10 @@ const sketch = (p) => {
         // Interaction Listeners
         canvas.mouseOver(handlePointerEnter);
         canvas.mouseOut(handlePointerLeave);
+        canvas.mouseOver(handlePointerEnter);
+        canvas.mouseOut(handlePointerLeave);
+
+        lastFlowerInteractionTime = p.millis();
     };
 
     // -------------------------------------------------------------------------
@@ -80,7 +85,24 @@ const sketch = (p) => {
         field.updateAndDraw(p.mouseX, p.mouseY, bloomingFlowers);
 
         // Draw each flower and its label
+        let anyFlowerActive = false;
+        const threshold = CONFIG.flower.idle?.interactionThreshold ?? 0.1;
+
         for (const flower of bloomingFlowers) {
+            if (flower.activation > threshold) {
+                anyFlowerActive = true;
+            }
+        }
+
+        if (anyFlowerActive) {
+            lastFlowerInteractionTime = p.millis();
+        }
+
+        const idleTimeout = CONFIG.flower.idle?.timeout ?? 5000;
+        const isIdle = (p.millis() - lastFlowerInteractionTime) > idleTimeout;
+
+        for (const flower of bloomingFlowers) {
+            flower.updateIdle(p.millis(), isIdle);
             flower.draw();
             flower.drawLabel();
         }

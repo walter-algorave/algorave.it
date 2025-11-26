@@ -153,6 +153,16 @@ export const CONFIG = {
             featherPaddingRatio: 300 / BASE_SHORT_SIDE,
             activationRate: 0.15,
             deactivationRate: 0.25
+        },
+        // --- IDLE ANIMATION CONFIGURATION ---
+        idle: {
+            timeout: 3000,          // Time in ms before idle mode starts
+            winkIntervalMin: 3000,  // Min time between winks
+            winkIntervalMax: 7000,  // Max time between winks
+            winkDuration: 600,      // Duration of a single wink
+            winkIntensity: 0.65,    // How much the flower opens (0-1)
+            holeIntensity: 0.4,     // Scale for physics hole size during idle (0-1)
+            interactionThreshold: 0.4 // Activation level required to reset idle timer (0-1)
         }
     },
     // Array of flower instances to display.

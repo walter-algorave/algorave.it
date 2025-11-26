@@ -31,7 +31,8 @@ export class BloomingFlower {
             x, // Absolute x position
             y,  // Absolute y position
             label,
-            labelConfig
+            labelConfig,
+            idle // New idle config
         } = {},
         spriteImage
     ) {
@@ -67,6 +68,13 @@ export class BloomingFlower {
         this.labelConfig = labelConfig;
         this.labelActivation = 0;
         this.labelVisible = false;
+
+        // Idle state initialization
+        this.idleConfig = idle;
+        this.idleActivation = 0;
+        this.isWinking = false;
+        this.nextWinkTime = 0;
+        this.winkStartTime = 0;
 
         this.spriteImage = spriteImage;
 
@@ -108,6 +116,42 @@ export class BloomingFlower {
         }
     }
 
+    updateIdle(time, isIdle) {
+        if (!this.idleConfig) return;
+
+        // If not idle or if the flower is being interacted with, reset everything
+        if (!isIdle || this.activation > 0.01) {
+            this.idleActivation = 0;
+            this.isWinking = false;
+            this.nextWinkTime = time + this.p.random(this.idleConfig.winkIntervalMin, this.idleConfig.winkIntervalMax);
+            return;
+        }
+
+        // Check if it's time to start a wink
+        if (!this.isWinking && time > this.nextWinkTime) {
+            this.isWinking = true;
+            this.winkStartTime = time;
+        }
+
+        if (this.isWinking) {
+            const elapsed = time - this.winkStartTime;
+            const duration = this.idleConfig.winkDuration;
+
+            if (elapsed >= duration) {
+                // Wink finished
+                this.isWinking = false;
+                this.idleActivation = 0;
+                this.nextWinkTime = time + this.p.random(this.idleConfig.winkIntervalMin, this.idleConfig.winkIntervalMax);
+            } else {
+                // Calculate wink activation (sine wave)
+                const progress = elapsed / duration;
+                // Sine wave from 0 to PI (0 -> 1 -> 0)
+                const sineValue = Math.sin(progress * Math.PI);
+                this.idleActivation = sineValue * this.idleConfig.winkIntensity;
+            }
+        }
+    }
+
     // =========================================================================
     // LOGIC & CALCULATION
     // =========================================================================
@@ -142,8 +186,20 @@ export class BloomingFlower {
             this.activation = targetActivation;
         }
 
+        // Calculate idle hole activation
+        const idleHoleActivation = this.idleActivation * (this.idleConfig?.holeIntensity ?? 0.3);
+
+        // Use the stronger of the two activations for physics, but keep track of source
+        let effectiveActivation = this.activation;
+        let useIdleCenter = false;
+
+        if (idleHoleActivation > this.activation) {
+            effectiveActivation = idleHoleActivation;
+            useIdleCenter = true;
+        }
+
         const visibilityThreshold = this.activationVisibilityThreshold ?? 1e-4;
-        this.visible = this.activation > visibilityThreshold;
+        this.visible = effectiveActivation > visibilityThreshold;
 
         if (!this.visible) {
             this._hole = null;
@@ -156,13 +212,18 @@ export class BloomingFlower {
 
         const targetRadius = this.radius + this.holePadding;
         // Use this.initialHoleRadius as the starting point
-        const radius = this.p.lerp(this.initialHoleRadius, targetRadius, this.activation);
-        const center = mouseVec.copy().lerp(this.center, this.activation);
+        const radius = this.p.lerp(this.initialHoleRadius, targetRadius, effectiveActivation);
 
-        const clearRadius = this.clearRadius * this.activation;
+        // If using idle activation, center the hole on the flower.
+        // If using mouse activation, interpolate between mouse and flower center.
+        const center = useIdleCenter
+            ? this.center.copy()
+            : mouseVec.copy().lerp(this.center, effectiveActivation);
+
+        const clearRadius = this.clearRadius * effectiveActivation;
         const clearFeather = this.clearFeather;
 
-        this._hole = { center, radius, clearRadius, clearFeather, activation: this.activation };
+        this._hole = { center, radius, clearRadius, clearFeather, activation: effectiveActivation };
 
         // Update label state as part of the compute cycle
         if (this.label) {
@@ -237,7 +298,9 @@ export class BloomingFlower {
     // =========================================================================
 
     draw() {
-        if (!this.visible || !this.spriteImage) {
+        // Visible if active (physics) OR if idling (visual only)
+        const isIdleVisible = this.idleActivation > (this.activationVisibilityThreshold ?? 1e-4);
+        if ((!this.visible && !isIdleVisible) || !this.spriteImage) {
             return;
         }
 
@@ -249,18 +312,21 @@ export class BloomingFlower {
         this.p.rotate(rotation);
         this.p.imageMode(this.p.CENTER);
 
-        const glow = this.glowBase + this.glowGain * this.activation;
-        const scale = this.bodyScaleBase + this.bodyScaleGain * this.activation;
+        // Use the maximum of user activation and idle activation for visual effects
+        const effectiveActivation = Math.max(this.activation, this.idleActivation);
+
+        const glow = this.glowBase + this.glowGain * effectiveActivation;
+        const scale = this.bodyScaleBase + this.bodyScaleGain * effectiveActivation;
         const size = this.radius * 2 * scale;
 
-        const fadeIn = this.p.pow(this.p.constrain(this.activation, 0, 1), this.fadeInExponent);
+        const fadeIn = this.p.pow(this.p.constrain(effectiveActivation, 0, 1), this.fadeInExponent);
         const alpha = 255 * glow * fadeIn;
 
         // Frame calculation logic
-        const frameProgress = this.activation <= this.frameHoldActivation
+        const frameProgress = effectiveActivation <= this.frameHoldActivation
             ? 0
             : this.p.constrain(
-                (this.activation - this.frameHoldActivation) / (1 - this.frameHoldActivation),
+                (effectiveActivation - this.frameHoldActivation) / (1 - this.frameHoldActivation),
                 0,
                 1
             );
