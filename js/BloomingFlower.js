@@ -360,7 +360,6 @@ export class BloomingFlower {
 
         this.p.pop();
     }
-
     drawLabel() {
         if (!this.labelVisible || !this.label || !this.labelConfig) return;
 
@@ -368,6 +367,12 @@ export class BloomingFlower {
         this.p.textAlign(this.p.CENTER, this.p.CENTER);
         this.p.textSize(this.labelConfig.fontSize);
         this.p.textFont(this.labelConfig.fontFamily);
+
+        // Apply font weight if specified
+        if (this.labelConfig.fontWeight) {
+            this.p.textStyle(this.p.NORMAL); // Reset style first
+            this.p.drawingContext.font = `${this.labelConfig.fontWeight} ${this.labelConfig.fontSize}px "${this.labelConfig.fontFamily}"`;
+        }
 
         // Fade in/out based on activation
         const alpha = 255 * this.labelActivation;
