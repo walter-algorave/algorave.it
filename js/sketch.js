@@ -74,18 +74,21 @@ const sketch = (p) => {
     };
 
     // -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // DRAW LOOP
     // -------------------------------------------------------------------------
 
     p.draw = () => {
         p.background(CONFIG.canvas.background);
         if (field) {
-            // Pass all flowers to the field for repulsion/clearing
+            // Pass all flowers to the field. The field will now automatically extract
+            // both the flower holes and the label repulsors from these objects.
             field.updateAndDraw(p.mouseX, p.mouseY, bloomingFlowers);
 
-            // Draw each flower
+            // Draw each flower and its label
             for (const flower of bloomingFlowers) {
                 flower.draw();
+                flower.drawLabel();
             }
         }
     };
@@ -157,7 +160,7 @@ const sketch = (p) => {
             for (const flower of bloomingFlowers) {
                 // Check if the last touch position is within the flower's interaction zone
                 const d = p.dist(p.mouseX, p.mouseY, flower.center.x, flower.center.y);
-                if (d < flower.revealRadius) {
+                if (d < flower.tapLockRadius) {
                     isOverFlower = true;
                     break;
                 }
