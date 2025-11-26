@@ -119,7 +119,7 @@ export const CONFIG = {
         // Maximum interpolation rate for deactivation (exit).
         activationLerpMaxRateExit: 0.48,
         // Exponent for the fade-in curve.
-        fadeInExponent: 1.15,
+        fadeInExponent: 1.05,
         // Activation threshold to hold the frame.
         frameHoldActivation: 0.24,
         // Threshold for visibility activation.

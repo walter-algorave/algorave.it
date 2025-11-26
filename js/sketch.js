@@ -141,9 +141,29 @@ const sketch = (p) => {
         handlePointerEnter();
     };
 
-    p.touchEnded = () => {
+    p.touchEnded = (event) => {
+        // Ignore mouse events masquerading as touch events (fixes desktop click bug)
+        if (event && event.type === 'mouseup') return;
+
         if (typeof p.touches === "undefined" || p.touches.length === 0) {
-            handlePointerLeave();
+            // Check if we are releasing over a flower
+            let isOverFlower = false;
+            for (const flower of bloomingFlowers) {
+                // Check if the last touch position is within the flower's interaction zone
+                const d = p.dist(p.mouseX, p.mouseY, flower.center.x, flower.center.y);
+                if (d < flower.revealRadius) {
+                    isOverFlower = true;
+                    break;
+                }
+            }
+
+            if (isOverFlower) {
+                // Keep the field and flower active
+                handlePointerEnter();
+            } else {
+                // Close the field
+                handlePointerLeave();
+            }
         }
     };
 
