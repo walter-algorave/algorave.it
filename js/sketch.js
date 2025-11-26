@@ -12,6 +12,7 @@ import { BloomingFlower } from "./BloomingFlower.js";
 const sketch = (p) => {
     let field;
     let bloomingFlowers = [];
+    let lastTouchTime = 0;
     // Map to store loaded sprites by ID or path
     const loadedSprites = new Map();
 
@@ -126,10 +127,12 @@ const sketch = (p) => {
     };
 
     p.mouseMoved = () => {
+        if (p.millis() - lastTouchTime < 500) return;
         handlePointerEnter();
     };
 
     p.mouseDragged = () => {
+        if (p.millis() - lastTouchTime < 500) return;
         handlePointerEnter();
     };
 
@@ -138,12 +141,15 @@ const sketch = (p) => {
     };
 
     p.touchStarted = () => {
+        lastTouchTime = p.millis();
         handlePointerEnter();
     };
 
     p.touchEnded = (event) => {
         // Ignore mouse events masquerading as touch events (fixes desktop click bug)
         if (event && event.type === 'mouseup') return;
+
+        lastTouchTime = p.millis();
 
         if (typeof p.touches === "undefined" || p.touches.length === 0) {
             // Check if we are releasing over a flower
