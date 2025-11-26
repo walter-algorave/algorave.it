@@ -144,14 +144,13 @@ export const CONFIG = {
         gridCols: 6,
         // --- LABEL CONFIGURATION ---
         labelConfig: {
-            fontSizeRatio: 70 / BASE_SHORT_SIDE,
+            fontSizeRatio: 75 / BASE_SHORT_SIDE,
             fontFamily: 'sans-serif',
             color: 30,
-            offsetYRatio: 290 / BASE_SHORT_SIDE,
             // Clear area around the text (hard push)
-            clearPaddingRatio: 20 / BASE_SHORT_SIDE,
+            clearPaddingRatio: 5 / BASE_SHORT_SIDE,
             // Feathered area around the clear area (soft push)
-            featherPaddingRatio: 140 / BASE_SHORT_SIDE,
+            featherPaddingRatio: 300 / BASE_SHORT_SIDE,
             activationRate: 0.15,
             deactivationRate: 0.25
         }
@@ -161,18 +160,26 @@ export const CONFIG = {
         {
             id: 'flower-1',
             sprite: './assets/daisy_sprite.webp',
-            x: 0.20,
-            y: 0.5,
+            x: 0.25,
+            y: 0.25,
             gridCols: 6,
             label: "Daisy Flower"
         },
         {
             id: 'flower-2',
             sprite: './assets/rose_sprite.webp',
-            x: 0.80,
-            y: 0.5,
+            x: 0.75,
+            y: 0.25,
             gridCols: 6,
-            // No label for the rose yet
+            label: "Rose"
+        },
+        {
+            id: 'flower-3',
+            sprite: './assets/anemone_sprite.webp',
+            x: 0.25,
+            y: 0.75,
+            gridCols: 6,
+            label: "Anemone"
         }
     ]
 };

@@ -22,7 +22,6 @@ const sketch = (p) => {
 
     p.preload = () => {
         // Load sprites for all configured flowers
-        // We iterate through the config to find unique sprite paths
         const uniqueSprites = new Set(CONFIG.flowers.map(f => f.sprite));
 
         uniqueSprites.forEach(path => {
@@ -57,7 +56,6 @@ const sketch = (p) => {
 
         // Initialize multiple flowers
         bloomingFlowers = flowerConfigs.map(config => {
-            // Retrieve the loaded sprite for this flower
             const sprite = loadedSprites.get(config.sprite);
             const flower = new BloomingFlower(p, config, sprite);
             // Snap to grid
@@ -74,22 +72,17 @@ const sketch = (p) => {
     };
 
     // -------------------------------------------------------------------------
-    // -------------------------------------------------------------------------
     // DRAW LOOP
     // -------------------------------------------------------------------------
 
     p.draw = () => {
         p.background(CONFIG.canvas.background);
-        if (field) {
-            // Pass all flowers to the field. The field will now automatically extract
-            // both the flower holes and the label repulsors from these objects.
-            field.updateAndDraw(p.mouseX, p.mouseY, bloomingFlowers);
+        field.updateAndDraw(p.mouseX, p.mouseY, bloomingFlowers);
 
-            // Draw each flower and its label
-            for (const flower of bloomingFlowers) {
-                flower.draw();
-                flower.drawLabel();
-            }
+        // Draw each flower and its label
+        for (const flower of bloomingFlowers) {
+            flower.draw();
+            flower.drawLabel();
         }
     };
 
@@ -104,28 +97,14 @@ const sketch = (p) => {
         const spacingRatio = fieldConfig.spacing / baseSpacing;
         p.strokeWeight(CONFIG.canvas.strokeWeight * spacingRatio);
 
-        if (field) {
-            field.applyResponsiveConfig(fieldConfig);
-        }
+        field.applyResponsiveConfig(fieldConfig);
 
         // Update all flowers
-        if (bloomingFlowers.length === flowerConfigs.length) {
-            for (let i = 0; i < bloomingFlowers.length; i++) {
-                bloomingFlowers[i].applyResponsiveConfig(flowerConfigs[i]);
-                // Snap to grid
-                const snapped = field.getNearestGridCenter(bloomingFlowers[i].center.x, bloomingFlowers[i].center.y);
-                bloomingFlowers[i].center.set(snapped.x, snapped.y);
-            }
-        } else {
-            // Re-init if count changed
-            bloomingFlowers = flowerConfigs.map(config => {
-                const sprite = loadedSprites.get(config.sprite);
-                const flower = new BloomingFlower(p, config, sprite);
-                // Snap to grid
-                const snapped = field.getNearestGridCenter(flower.center.x, flower.center.y);
-                flower.center.set(snapped.x, snapped.y);
-                return flower;
-            });
+        for (let i = 0; i < bloomingFlowers.length; i++) {
+            bloomingFlowers[i].applyResponsiveConfig(flowerConfigs[i]);
+            // Snap to grid
+            const snapped = field.getNearestGridCenter(bloomingFlowers[i].center.x, bloomingFlowers[i].center.y);
+            bloomingFlowers[i].center.set(snapped.x, snapped.y);
         }
     };
 

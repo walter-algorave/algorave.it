@@ -113,18 +113,8 @@ export class VectorField {
     }
 
     getNearestGridCenter(x, y) {
-        if (this.gridX0 === undefined || this.gridY0 === undefined) {
-            return { x, y };
-        }
-
-        // The center of 4 arrows (a cell) is at ((col + 0.5) * spacing, (row + 0.5) * spacing).
-
-        const relativeX = x - this.gridX0;
-        const relativeY = y - this.gridY0;
-
-        // A cell i,j has center at (i + 0.5) * spacing, (j + 0.5) * spacing
-        const col = Math.round((relativeX / this.spacing) - 0.5);
-        const row = Math.round((relativeY / this.spacing) - 0.5);
+        const col = Math.round((x - this.gridX0) / this.spacing - 0.5);
+        const row = Math.round((y - this.gridY0) / this.spacing - 0.5);
 
         const centerX = this.gridX0 + (col + 0.5) * this.spacing;
         const centerY = this.gridY0 + (row + 0.5) * this.spacing;
@@ -169,17 +159,15 @@ export class VectorField {
 
         const activeHoles = [];
         for (const target of targets) {
-            const data = target.computeHole(m.copy());
+            const data = target.computeHole(m.copy(), this);
             if (data) {
-                // Ensure type is set for existing circular holes
                 data.type = 'circle';
                 activeHoles.push(data);
             }
-            // Automatically check for label repulsion
-            if (typeof target.getLabelRepulsion === 'function') {
-                const labelRepulsor = target.getLabelRepulsion();
-                if (labelRepulsor) {
-                    activeHoles.push(labelRepulsor);
+            if (typeof target.getExtraRepulsion === 'function') {
+                const extraRepulsor = target.getExtraRepulsion();
+                if (extraRepulsor) {
+                    activeHoles.push(extraRepulsor);
                 }
             }
         }
@@ -197,14 +185,11 @@ export class VectorField {
                 // Rectangular repulsion setup
                 const halfWidth = h.width / 2;
                 const halfHeight = h.height / 2;
-                // falloff not strictly used in hard exclusion but kept for potential soft outer effects
-                const falloff = h.falloff || 40;
                 return {
                     type: 'rect',
                     center: h.center,
                     halfWidth,
                     halfHeight,
-                    falloff,
                     clearPadding: h.clearPadding,
                     featherPadding: h.featherPadding,
                     strength: h.strength || 1
@@ -260,104 +245,88 @@ export class VectorField {
                 this._tmpDiff.sub(repulsor.center);
 
                 if (repulsor.type === 'rect') {
-                    // Rectangular Repulsion (Hard Exclusion)
-                    // We want to push the arrow OUT of the box defined by (halfWidth + clearPadding)
-                    // featherPadding adds a soft transition zone outside that.
+                    // RECTANGULAR -> ELLIPTICAL REPULSION
+                    // transform the rectangular bounding box into a circumscribed ellipse.
 
-                    // Scale the hard exclusion box by strength to allow the hole to close
-                    // This ensures that when strength is 0, the hole is 0.
                     const scale = repulsor.strength;
-                    const scaledHalfWidth = repulsor.halfWidth * scale;
-                    const scaledHalfHeight = repulsor.halfHeight * scale;
+                    if (scale < 1e-4) continue;
 
-                    const clearW = scaledHalfWidth + (repulsor.clearPadding || 0);
-                    const clearH = scaledHalfHeight + (repulsor.clearPadding || 0);
+                    // Calculate base dimensions including padding
+                    const boxW = repulsor.halfWidth + (repulsor.clearPadding || 0);
+                    const boxH = repulsor.halfHeight + (repulsor.clearPadding || 0);
+
+                    // Apply strength scaling for animation
+                    const Rx = boxW * Math.SQRT2 * scale;
+                    const Ry = boxH * Math.SQRT2 * scale;
+
                     const feather = repulsor.featherPadding || 0;
 
+                    // Calculate normalized distance to ellipse center
                     const dx = Math.abs(this._tmpDiff.x);
                     const dy = Math.abs(this._tmpDiff.y);
 
-                    // Check if inside the total influence zone (clear + feather)
-                    if (dx < clearW + feather && dy < clearH + feather) {
+                    // Avoid division by zero
+                    if (Rx < 1e-4 || Ry < 1e-4) continue;
 
-                        // Calculate penetration depth into the clear zone
-                        // We project the point to the nearest edge of the clear box
+                    const nx = dx / Rx;
+                    const ny = dy / Ry;
+                    const distSq = nx * nx + ny * ny;
+                    const dist = Math.sqrt(distSq);
 
-                        // Determine which axis is closer to the edge
-                        // Distance to vertical edge: clearW - dx
-                        // Distance to horizontal edge: clearH - dy
+                    if (dist < 1) {
+                        // INSIDE HARD EXCLUSION ZONE
+                        if (dist > 1e-4) {
+                            this._tmpTarget.x = repulsor.center.x + this._tmpDiff.x / dist;
+                            this._tmpTarget.y = repulsor.center.y + this._tmpDiff.y / dist;
 
-                        const distX = clearW - dx;
-                        const distY = clearH - dy;
-
-                        // We only care if we are actually inside the clear box or the feather zone
-                        // Logic:
-                        // 1. If inside clear box (dx < clearW && dy < clearH):
-                        //    Push out to the nearest edge.
-                        // 2. If in feather zone (one or both coords outside clear but inside feather):
-                        //    Apply soft push.
-
-                        if (dx < clearW && dy < clearH) {
-                            // INSIDE CLEAR ZONE: HARD PUSH
-                            // Find nearest edge
-                            if (distX < distY) {
-                                // Closer to vertical edge
-                                const signX = Math.sign(this._tmpDiff.x) || 1;
-                                // Move target x to the edge
-                                this._tmpTarget.x = repulsor.center.x + (signX * clearW);
-                                // Add a bit of feather push if needed, but hard snap is usually enough
-                                if (feather > 0) {
-                                    this._tmpTarget.x += signX * feather * 0.25;
-                                }
-                            } else {
-                                // Closer to horizontal edge
-                                const signY = Math.sign(this._tmpDiff.y) || 1;
-                                // Move target y to the edge
-                                this._tmpTarget.y = repulsor.center.y + (signY * clearH);
-                                if (feather > 0) {
-                                    this._tmpTarget.y += signY * feather * 0.25;
+                            // Add the constant feather push
+                            if (feather > 0) {
+                                const extraPush = feather * 0.25 * scale;
+                                const len = Math.hypot(this._tmpDiff.x, this._tmpDiff.y);
+                                if (len > 1e-4) {
+                                    this._tmpTarget.x += (this._tmpDiff.x / len) * extraPush;
+                                    this._tmpTarget.y += (this._tmpDiff.y / len) * extraPush;
                                 }
                             }
                         } else {
-                            // IN FEATHER ZONE
-                            // We are outside the clear box but inside the feather box.
-                            // Calculate distance to the clear box boundary.
-                            // SDF to the clear box:
-                            const dOuterX = Math.max(dx - clearW, 0);
-                            const dOuterY = Math.max(dy - clearH, 0);
-                            const distToClear = Math.hypot(dOuterX, dOuterY);
+                            const extraPush = feather > 0 ? feather * 0.25 * scale : 0;
+                            this._tmpTarget.x = repulsor.center.x + Rx + extraPush;
+                            this._tmpTarget.y = repulsor.center.y;
+                        }
 
-                            if (distToClear < feather) {
-                                // Linear falloff or eased push
-                                const t = 1 - (distToClear / feather);
-                                const eased = t * t;
-                                const push = feather * eased * 0.25 * repulsor.strength;
+                    } else {
+                        // OUTSIDE HARD ZONE - CHECK FEATHER
+                        if (feather > 0) {
+                            const RxOuter = Rx + feather;
+                            const RyOuter = Ry + feather;
 
-                                // Direction away from the box
-                                // If we are in the corner, push diagonally.
-                                // If we are on the side, push axially.
-                                let pushDirX = 0;
-                                let pushDirY = 0;
+                            const nxOuter = dx / RxOuter;
+                            const nyOuter = dy / RyOuter;
+                            const distSqOuter = nxOuter * nxOuter + nyOuter * nyOuter;
 
-                                if (distToClear > 1e-4) {
-                                    pushDirX = dOuterX * Math.sign(this._tmpDiff.x);
-                                    pushDirY = dOuterY * Math.sign(this._tmpDiff.y);
-                                    // Normalize
-                                    const len = Math.hypot(pushDirX, pushDirY);
-                                    pushDirX /= len;
-                                    pushDirY /= len;
-                                } else {
-                                    // Should be covered by inside check, but just in case
-                                    pushDirX = Math.sign(this._tmpDiff.x) || 1;
-                                    pushDirY = 0;
+                            if (distSqOuter < 1) {
+                                // INSIDE FEATHER ZONE
+
+                                const u_in = 1 / dist;
+                                const u_out = 1 / Math.sqrt(distSqOuter);
+
+                                const denom = u_out - u_in;
+                                if (denom > 1e-6) {
+                                    const t = (1 - u_in) / denom;
+
+                                    const pushFactor = (1 - t) * (1 - t);
+                                    const push = feather * pushFactor * 0.25 * scale;
+
+                                    const len = Math.hypot(this._tmpDiff.x, this._tmpDiff.y) || 1;
+                                    const dirX = this._tmpDiff.x / len;
+                                    const dirY = this._tmpDiff.y / len;
+
+                                    this._tmpTarget.x += dirX * push;
+                                    this._tmpTarget.y += dirY * push;
                                 }
-
-                                this._tmpTarget.x += pushDirX * push;
-                                this._tmpTarget.y += pushDirY * push;
                             }
                         }
                     }
-
                 } else {
                     // Circular Repulsion
                     const d = this._tmpDiff.mag();
