@@ -7,6 +7,7 @@ export class BloomingFlower {
             radius = 50,
             revealRadius = 220,
             initialHoleRadius = 0,
+            tapLockRadius = 0,
             holePadding = 30,
             clearRadius = 0,
             clearFeather = 0,
@@ -28,7 +29,9 @@ export class BloomingFlower {
             bodyScaleGain = 0.35,
             gridCols = 5,
             x, // Absolute x position
-            y  // Absolute y position
+            y,  // Absolute y position
+            label,
+            labelConfig
         } = {},
         spriteImage
     ) {
@@ -36,6 +39,7 @@ export class BloomingFlower {
         this.radius = radius;
         this.revealRadius = revealRadius;
         this.initialHoleRadius = initialHoleRadius;
+        this.tapLockRadius = tapLockRadius;
         this.holePadding = holePadding;
         this.clearRadius = clearRadius;
         this.clearFeather = clearFeather;
@@ -59,6 +63,11 @@ export class BloomingFlower {
         this.gridCols = gridCols;
         this.frameCount = gridCols * gridCols;
 
+        this.label = label;
+        this.labelConfig = labelConfig;
+        this.labelActivation = 0;
+        this.labelVisible = false;
+
         this.spriteImage = spriteImage;
 
         // Use provided position or default to center
@@ -70,6 +79,7 @@ export class BloomingFlower {
         this.activation = 0;
         this.visible = false;
         this._hole = null;
+        this._extraRepulsion = null;
     }
 
     // =========================================================================
@@ -102,7 +112,7 @@ export class BloomingFlower {
     // LOGIC & CALCULATION
     // =========================================================================
 
-    computeHole(mouseVec) { // Removed baseRepel arg
+    computeHole(mouseVec, field) { // Added field arg
         const dist = this.p.dist(mouseVec.x, mouseVec.y, this.center.x, this.center.y);
         this.proximity = this.p.constrain(1 - dist / this.revealRadius, 0, 1);
 
@@ -137,6 +147,10 @@ export class BloomingFlower {
 
         if (!this.visible) {
             this._hole = null;
+            // Ensure label is also deactivated immediately
+            this.labelActivation = 0;
+            this.labelVisible = false;
+            this._extraRepulsion = null;
             return null;
         }
 
@@ -149,7 +163,68 @@ export class BloomingFlower {
         const clearFeather = this.clearFeather;
 
         this._hole = { center, radius, clearRadius, clearFeather, activation: this.activation };
+
+        // Update label state as part of the compute cycle
+        if (this.label) {
+            this.updateLabel(field);
+        }
+
         return this._hole;
+    }
+
+    updateLabel(field) {
+        if (!this.label || !this.labelConfig) return;
+
+        // Label appears when flower is significantly activated (bloomed) or hovered
+        // We use a threshold on the main activation to trigger the label
+        const targetLabelActivation = this.activation > 0.8 ? 1 : 0;
+
+        const rate = targetLabelActivation > this.labelActivation
+            ? this.labelConfig.activationRate
+            : this.labelConfig.deactivationRate;
+
+        this.labelActivation = this.p.lerp(this.labelActivation, targetLabelActivation, rate);
+
+        if (this.p.abs(this.labelActivation - targetLabelActivation) < 1e-3) {
+            this.labelActivation = targetLabelActivation;
+        }
+
+        this.labelVisible = this.labelActivation > 0.01;
+        this._extraRepulsion = null;
+
+        if (this.labelVisible) {
+            this.p.push();
+            this.p.textSize(this.labelConfig.fontSize);
+            this.p.textFont(this.labelConfig.fontFamily);
+            const w = this.p.textWidth(this.label);
+            const h = this.labelConfig.fontSize;
+            this.p.pop();
+
+            const clearPadding = this.labelConfig.clearPadding * this.labelActivation;
+            const featherPadding = this.labelConfig.featherPadding;
+
+            // Calculate label center position (relative to SCREEN center)
+            // Snap to nearest grid center
+            const snapped = field.getNearestGridCenter(this.p.width / 2, this.p.height / 2);
+            const labelCenter = this.p.createVector(snapped.x, snapped.y);
+
+            // Store for drawing
+            this.currentLabelCenter = labelCenter;
+
+            this._extraRepulsion = {
+                type: 'rect',
+                center: labelCenter,
+                width: w,
+                height: h,
+                clearPadding: clearPadding,
+                featherPadding: featherPadding,
+                strength: this.labelActivation
+            };
+        }
+    }
+
+    getExtraRepulsion() {
+        return this._extraRepulsion;
     }
 
     _easeOutCubic(t) {
@@ -182,7 +257,6 @@ export class BloomingFlower {
         const alpha = 255 * glow * fadeIn;
 
         // Frame calculation logic
-        // Calculate target frame based on activation
         const frameProgress = this.activation <= this.frameHoldActivation
             ? 0
             : this.p.constrain(
@@ -194,21 +268,12 @@ export class BloomingFlower {
         const shapedProgress = this.p.pow(frameProgress, this.frameProgressExponent ?? 1);
 
         // Map 0-1 to 0-(frameCount-1)
-        // Use floor to get integer index
         let frameIndex = Math.floor(shapedProgress * (this.frameCount - 1));
         frameIndex = this.p.constrain(frameIndex, 0, this.frameCount - 1);
 
         // Calculate source rectangle from sprite sheet
         const frameWidth = this.spriteImage.width / this.gridCols;
-        // Assuming square frames or calculating height based on rows
-        // We know gridCols, so rows = ceil(frameCount / gridCols)
-        // But simpler: we know the image width/height.
-        // If the sprite sheet is generated by our script, it's a grid.
-        // We can assume frameHeight = frameWidth if we enforced square frames, 
-        // but let's be robust.
-        // The script generates square frames, but let's calculate rows to be sure.
-        const gridRows = Math.ceil(this.frameCount / this.gridCols);
-        const frameHeight = this.spriteImage.height / gridRows;
+        const frameHeight = frameWidth;
 
         const col = frameIndex % this.gridCols;
         const row = Math.floor(frameIndex / this.gridCols);
@@ -227,6 +292,25 @@ export class BloomingFlower {
         );
         this.p.noTint();
 
+        this.p.pop();
+    }
+
+    drawLabel() {
+        if (!this.labelVisible || !this.label || !this.labelConfig) return;
+
+        this.p.push();
+        this.p.textAlign(this.p.CENTER, this.p.CENTER);
+        this.p.textSize(this.labelConfig.fontSize);
+        this.p.textFont(this.labelConfig.fontFamily);
+
+        // Fade in/out based on activation
+        const alpha = 255 * this.labelActivation;
+        this.p.fill(this.labelConfig.color, alpha);
+        this.p.noStroke();
+
+        // Draw relative to SCREEN center (or snapped center if available)
+        const pos = this.currentLabelCenter || this.p.createVector(this.p.width / 2, this.p.height / 2);
+        this.p.text(this.label, pos.x, pos.y);
         this.p.pop();
     }
 }

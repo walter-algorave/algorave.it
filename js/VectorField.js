@@ -113,18 +113,8 @@ export class VectorField {
     }
 
     getNearestGridCenter(x, y) {
-        if (this.gridX0 === undefined || this.gridY0 === undefined) {
-            return { x, y };
-        }
-
-        // The center of 4 arrows (a cell) is at ((col + 0.5) * spacing, (row + 0.5) * spacing).
-
-        const relativeX = x - this.gridX0;
-        const relativeY = y - this.gridY0;
-
-        // A cell i,j has center at (i + 0.5) * spacing, (j + 0.5) * spacing
-        const col = Math.round((relativeX / this.spacing) - 0.5);
-        const row = Math.round((relativeY / this.spacing) - 0.5);
+        const col = Math.round((x - this.gridX0) / this.spacing - 0.5);
+        const row = Math.round((y - this.gridY0) / this.spacing - 0.5);
 
         const centerX = this.gridX0 + (col + 0.5) * this.spacing;
         const centerY = this.gridY0 + (row + 0.5) * this.spacing;
@@ -153,7 +143,7 @@ export class VectorField {
     // PHYSICS & UPDATE
     // =========================================================================
 
-    updateAndDraw(mx, my, revealTargets = []) {
+    updateAndDraw(mx, my, revealTargets = [], extraRepulsors = []) {
         const curMouse = this.p.createVector(mx, my);
         if (!this._mouseInit) {
             this.smoothedMouse.set(curMouse);
@@ -165,51 +155,80 @@ export class VectorField {
         const pointerPresence = this._updatePointerPresence();
 
         // 1. Compute hole data for all targets
-        // We handle single target or array for backward compatibility, though we expect array now.
         const targets = Array.isArray(revealTargets) ? revealTargets : (revealTargets ? [revealTargets] : []);
 
         const activeHoles = [];
         for (const target of targets) {
-            const data = target.computeHole(m.copy()); // Removed this.repelRadius
+            const data = target.computeHole(m.copy(), this);
             if (data) {
+                data.type = 'circle';
                 activeHoles.push(data);
             }
-        }
-
-        // Pre-calculate hole properties to avoid re-calc in loop
-        const holes = activeHoles.map(h => {
-            const holeCenter = h.center;
-            const baseHoleRadius = h.radius;
-            const holeRadius = baseHoleRadius * pointerPresence;
-            const falloffRange = holeRadius * this.falloffMultiplier;
-            const outerRadius = holeRadius + falloffRange;
-            const boundaryPush = falloffRange * this.outerStrength;
-
-            const holeClearRadius = h.clearRadius;
-            const holeClearFeather = h.clearFeather;
-
-            return {
-                center: holeCenter,
-                holeRadius,
-                falloffRange,
-                outerRadius,
-                boundaryPush,
-                holeClearRadius,
-                holeClearFeather
-            };
-        });
-
-        // Calculate the maximum activation to blend cursor repulsion
-        let maxActivation = 0;
-        for (const hole of activeHoles) {
-            if (hole.activation > maxActivation) {
-                maxActivation = hole.activation;
+            if (typeof target.getExtraRepulsion === 'function') {
+                const extraRepulsor = target.getExtraRepulsion();
+                if (extraRepulsor) {
+                    activeHoles.push(extraRepulsor);
+                }
             }
         }
 
-        // As maxActivation approaches 1 (fully bloomed/close), blendingFactor approaches 0 (no cursor repulsion)
-        const blendingFactor = 1 - maxActivation;
+        // Add extra repulsors (like labels passed manually, though we prefer automatic now)
+        for (const repulsor of extraRepulsors) {
+            if (repulsor) {
+                activeHoles.push(repulsor);
+            }
+        }
 
+        // Pre-calculate properties
+        const repulsors = activeHoles.map(h => {
+            if (h.type === 'rect') {
+                // Rectangular repulsion setup
+                const halfWidth = h.width / 2;
+                const halfHeight = h.height / 2;
+                return {
+                    type: 'rect',
+                    center: h.center,
+                    halfWidth,
+                    halfHeight,
+                    clearPadding: h.clearPadding,
+                    featherPadding: h.featherPadding,
+                    strength: h.strength || 1
+                };
+            } else {
+                // Circular repulsion setup (existing logic)
+                const holeCenter = h.center;
+                const baseHoleRadius = h.radius;
+                const holeRadius = baseHoleRadius * pointerPresence;
+                const falloffRange = holeRadius * this.falloffMultiplier;
+                const outerRadius = holeRadius + falloffRange;
+                const boundaryPush = falloffRange * this.outerStrength;
+
+                const holeClearRadius = h.clearRadius;
+                const holeClearFeather = h.clearFeather;
+
+                return {
+                    type: 'circle',
+                    center: holeCenter,
+                    holeRadius,
+                    falloffRange,
+                    outerRadius,
+                    boundaryPush,
+                    holeClearRadius,
+                    holeClearFeather,
+                    activation: h.activation
+                };
+            }
+        });
+
+        // Calculate the maximum activation to blend cursor repulsion (only for flowers)
+        let maxActivation = 0;
+        for (const h of activeHoles) {
+            if (h.type === 'circle' && h.activation > maxActivation) {
+                maxActivation = h.activation;
+            }
+        }
+
+        const blendingFactor = 1 - maxActivation;
         const cursorClearRadius = this.cursorClearRadius * pointerPresence * blendingFactor;
         const cursorClearFeather = this.cursorClearFeather * pointerPresence * blendingFactor;
 
@@ -220,35 +239,122 @@ export class VectorField {
 
             this._tmpTarget.set(base);
 
-            // Accumulate forces from all holes
-            for (const hole of holes) {
+            // Accumulate forces from all repulsors
+            for (const repulsor of repulsors) {
                 this._tmpDiff.set(base);
-                this._tmpDiff.sub(hole.center);
-                const d = this._tmpDiff.mag();
+                this._tmpDiff.sub(repulsor.center);
 
-                if (d < hole.outerRadius) {
-                    if (d > this.directionEpsilon) {
-                        this._tmpDir.set(this._tmpDiff);
-                        this._tmpDir.mult(1 / d);
+                if (repulsor.type === 'rect') {
+                    // RECTANGULAR -> ELLIPTICAL REPULSION
+                    // transform the rectangular bounding box into a circumscribed ellipse.
+
+                    const scale = repulsor.strength;
+                    if (scale < 1e-4) continue;
+
+                    // Calculate base dimensions including padding
+                    const boxW = repulsor.halfWidth + (repulsor.clearPadding || 0);
+                    const boxH = repulsor.halfHeight + (repulsor.clearPadding || 0);
+
+                    // Apply strength scaling for animation
+                    const Rx = boxW * Math.SQRT2 * scale;
+                    const Ry = boxH * Math.SQRT2 * scale;
+
+                    const feather = repulsor.featherPadding || 0;
+
+                    // Calculate normalized distance to ellipse center
+                    const dx = Math.abs(this._tmpDiff.x);
+                    const dy = Math.abs(this._tmpDiff.y);
+
+                    // Avoid division by zero
+                    if (Rx < 1e-4 || Ry < 1e-4) continue;
+
+                    const nx = dx / Rx;
+                    const ny = dy / Ry;
+                    const distSq = nx * nx + ny * ny;
+                    const dist = Math.sqrt(distSq);
+
+                    if (dist < 1) {
+                        // INSIDE HARD EXCLUSION ZONE
+                        if (dist > 1e-4) {
+                            this._tmpTarget.x = repulsor.center.x + this._tmpDiff.x / dist;
+                            this._tmpTarget.y = repulsor.center.y + this._tmpDiff.y / dist;
+
+                            // Add the constant feather push
+                            if (feather > 0) {
+                                const extraPush = feather * 0.25 * scale;
+                                const len = Math.hypot(this._tmpDiff.x, this._tmpDiff.y);
+                                if (len > 1e-4) {
+                                    this._tmpTarget.x += (this._tmpDiff.x / len) * extraPush;
+                                    this._tmpTarget.y += (this._tmpDiff.y / len) * extraPush;
+                                }
+                            }
+                        } else {
+                            const extraPush = feather > 0 ? feather * 0.25 * scale : 0;
+                            this._tmpTarget.x = repulsor.center.x + Rx + extraPush;
+                            this._tmpTarget.y = repulsor.center.y;
+                        }
+
                     } else {
-                        this._tmpDir.set(1, 0);
+                        // OUTSIDE HARD ZONE - CHECK FEATHER
+                        if (feather > 0) {
+                            const RxOuter = Rx + feather;
+                            const RyOuter = Ry + feather;
+
+                            const nxOuter = dx / RxOuter;
+                            const nyOuter = dy / RyOuter;
+                            const distSqOuter = nxOuter * nxOuter + nyOuter * nyOuter;
+
+                            if (distSqOuter < 1) {
+                                // INSIDE FEATHER ZONE
+
+                                const u_in = 1 / dist;
+                                const u_out = 1 / Math.sqrt(distSqOuter);
+
+                                const denom = u_out - u_in;
+                                if (denom > 1e-6) {
+                                    const t = (1 - u_in) / denom;
+
+                                    const pushFactor = (1 - t) * (1 - t);
+                                    const push = feather * pushFactor * 0.25 * scale;
+
+                                    const len = Math.hypot(this._tmpDiff.x, this._tmpDiff.y) || 1;
+                                    const dirX = this._tmpDiff.x / len;
+                                    const dirY = this._tmpDiff.y / len;
+
+                                    this._tmpTarget.x += dirX * push;
+                                    this._tmpTarget.y += dirY * push;
+                                }
+                            }
+                        }
                     }
+                } else {
+                    // Circular Repulsion
+                    const d = this._tmpDiff.mag();
 
-                    if (d < hole.holeRadius) {
-                        const insideNorm = this.p.constrain((hole.holeRadius - d) / hole.holeRadius, 0, 1);
-                        const eased = 1 - Math.exp(-this.innerEase * insideNorm);
-                        const push = hole.boundaryPush + hole.falloffRange * this.innerExtraStrength * eased;
+                    if (d < repulsor.outerRadius) {
+                        if (d > this.directionEpsilon) {
+                            this._tmpDir.set(this._tmpDiff);
+                            this._tmpDir.mult(1 / d);
+                        } else {
+                            this._tmpDir.set(1, 0);
+                        }
 
-                        this._tmpDir.mult(push);
-                        this._tmpTarget.add(this._tmpDir);
-                    } else {
-                        const falloffNorm = this.p.constrain((hole.outerRadius - d) / hole.falloffRange, 0, 1);
-                        const eased = this.p.pow(falloffNorm, this.outerFalloffExponent);
-                        const push = hole.falloffRange * this.outerStrength * eased;
+                        if (d < repulsor.holeRadius) {
+                            const insideNorm = this.p.constrain((repulsor.holeRadius - d) / repulsor.holeRadius, 0, 1);
+                            const eased = 1 - Math.exp(-this.innerEase * insideNorm);
+                            const push = repulsor.boundaryPush + repulsor.falloffRange * this.innerExtraStrength * eased;
 
-                        if (push > this.pushEpsilon) {
                             this._tmpDir.mult(push);
                             this._tmpTarget.add(this._tmpDir);
+                        } else {
+                            const falloffNorm = this.p.constrain((repulsor.outerRadius - d) / repulsor.falloffRange, 0, 1);
+                            const eased = this.p.pow(falloffNorm, this.outerFalloffExponent);
+                            const push = repulsor.falloffRange * this.outerStrength * eased;
+
+                            if (push > this.pushEpsilon) {
+                                this._tmpDir.mult(push);
+                                this._tmpTarget.add(this._tmpDir);
+                            }
                         }
                     }
                 }
@@ -282,13 +388,13 @@ export class VectorField {
                 }
             }
 
-            for (const hole of holes) {
-                if (hole.holeClearRadius > 0) {
+            for (const repulsor of repulsors) {
+                if (repulsor.type === 'circle' && repulsor.holeClearRadius > 0) {
                     this._tmpDiff.set(base);
-                    this._tmpDiff.sub(hole.center);
+                    this._tmpDiff.sub(repulsor.center);
                     const d = this._tmpDiff.mag();
 
-                    if (d < hole.holeClearRadius + hole.holeClearFeather) {
+                    if (d < repulsor.holeClearRadius + repulsor.holeClearFeather) {
                         if (d > this.directionEpsilon) {
                             this._tmpDir.set(this._tmpDiff);
                             this._tmpDir.mult(1 / d);
@@ -297,12 +403,12 @@ export class VectorField {
                         }
 
                         let exclusionPush = 0;
-                        if (d < hole.holeClearRadius) {
-                            exclusionPush = (hole.holeClearRadius - d) + (hole.holeClearFeather * 0.25);
-                        } else if (hole.holeClearFeather > 0) {
-                            const t = 1 - (d - hole.holeClearRadius) / hole.holeClearFeather;
+                        if (d < repulsor.holeClearRadius) {
+                            exclusionPush = (repulsor.holeClearRadius - d) + (repulsor.holeClearFeather * 0.25);
+                        } else if (repulsor.holeClearFeather > 0) {
+                            const t = 1 - (d - repulsor.holeClearRadius) / repulsor.holeClearFeather;
                             const eased = t * t;
-                            exclusionPush = hole.holeClearFeather * eased * 0.25;
+                            exclusionPush = repulsor.holeClearFeather * eased * 0.25;
                         }
 
                         if (exclusionPush > 0) {

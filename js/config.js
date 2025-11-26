@@ -106,6 +106,8 @@ export const CONFIG = {
         clearFeatherRatio: 120 / BASE_SHORT_SIDE,
         // Ratio of the initial hole radius (when starting to bloom) relative to the base short side.
         initialHoleRadiusRatio: 20 / BASE_SHORT_SIDE,
+        // Ratio of the tap lock radius relative to the base short side.
+        tapLockRadiusRatio: 50 / BASE_SHORT_SIDE,
         // Threshold for starting the reveal animation.
         revealStart: 0.20,
         // Minimum interpolation rate for activation.
@@ -140,25 +142,44 @@ export const CONFIG = {
         bodyScaleGain: 0.35,
         // Number of columns in the sprite sheet grid.
         gridCols: 6,
-
+        // --- LABEL CONFIGURATION ---
+        labelConfig: {
+            fontSizeRatio: 75 / BASE_SHORT_SIDE,
+            fontFamily: 'sans-serif',
+            color: 30,
+            // Clear area around the text (hard push)
+            clearPaddingRatio: 5 / BASE_SHORT_SIDE,
+            // Feathered area around the clear area (soft push)
+            featherPaddingRatio: 300 / BASE_SHORT_SIDE,
+            activationRate: 0.15,
+            deactivationRate: 0.25
+        }
     },
     // Array of flower instances to display.
     flowers: [
         {
             id: 'flower-1',
             sprite: './assets/daisy_sprite.webp',
-            x: 0.35,
-            y: 0.5,
+            x: 0.25,
+            y: 0.25,
             gridCols: 6,
-
+            label: "Daisy Flower"
         },
         {
             id: 'flower-2',
             sprite: './assets/rose_sprite.webp',
-            x: 0.65,
-            y: 0.5,
+            x: 0.75,
+            y: 0.25,
             gridCols: 6,
-
+            label: "Rose"
+        },
+        {
+            id: 'flower-3',
+            sprite: './assets/anemone_sprite.webp',
+            x: 0.25,
+            y: 0.75,
+            gridCols: 6,
+            label: "Anemone"
         }
     ]
 };
@@ -197,10 +218,6 @@ export function buildResponsiveFieldConfig(p, base) {
     const {
         spacingRatio,
         arrowLenSpacingRatio,
-        // repelRadiusSpacingRatio, // REMOVED
-        // cursorRepelRadiusSpacingRatio, // REMOVED
-        // cursorClearSpacingRatio, // MOVED to cursor object
-        // cursorClearFeatherSpacingRatio, // MOVED to cursor object
         falloffMultiplier,
         densityCompensation,
         cursor, // New cursor object
@@ -215,7 +232,6 @@ export function buildResponsiveFieldConfig(p, base) {
         ...rest,
         spacing,
         arrowLen: spacing * arrowLenSpacingRatio,
-        // repelRadius: spacing * (cursorRepelRadiusSpacingRatio ?? repelRadiusSpacingRatio), // REMOVED
         cursorClearRadius: spacing * (cursor?.clearRadiusSpacingRatio ?? 0),
         cursorClearFeather: spacing * (cursor?.clearFeatherSpacingRatio ?? 0),
         falloffMultiplier: falloffMultiplier * reachScale,
@@ -245,6 +261,15 @@ export function buildResponsiveFlowerConfig(p, base, instanceConfig) {
     const clearFeatherPx = clearFeatherRatio * BASE_SHORT_SIDE;
     const revealRadiusPx = revealRadiusDiagonalRatio * BASE_DIAGONAL;
 
+    // Label config scaling
+    const labelConfig = merged.labelConfig ? {
+        ...merged.labelConfig,
+        fontSize: (merged.labelConfig.fontSizeRatio || 0.02) * BASE_SHORT_SIDE * layoutScale,
+        offsetY: (merged.labelConfig.offsetYRatio || 0.1) * BASE_SHORT_SIDE * layoutScale,
+        clearPadding: (merged.labelConfig.clearPaddingRatio || 0.02) * BASE_SHORT_SIDE * layoutScale,
+        featherPadding: (merged.labelConfig.featherPaddingRatio || 0.04) * BASE_SHORT_SIDE * layoutScale
+    } : undefined;
+
     return {
         ...rest,
         radius: radiusPx * layoutScale,
@@ -253,9 +278,11 @@ export function buildResponsiveFlowerConfig(p, base, instanceConfig) {
         clearRadius: clearRadiusPx * layoutScale,
         clearFeather: clearFeatherPx * layoutScale,
         initialHoleRadius: (merged.initialHoleRadiusRatio * BASE_SHORT_SIDE) * layoutScale,
+        tapLockRadius: (merged.tapLockRadiusRatio * BASE_SHORT_SIDE) * layoutScale,
         // Calculate absolute position if x/y are provided as ratios
         x: instanceConfig.x !== undefined ? instanceConfig.x * p.width : undefined,
-        y: instanceConfig.y !== undefined ? instanceConfig.y * p.height : undefined
+        y: instanceConfig.y !== undefined ? instanceConfig.y * p.height : undefined,
+        labelConfig
     };
 }
 
