@@ -36,9 +36,9 @@ export const CONFIG = {
         // --- CURSOR INTERACTION (The "Hole" around the mouse) ---
         cursor: {
             // Ratio of the cursor clearing radius relative to the spacing.
-            clearRadiusSpacingRatio: 20 / 45,
+            clearRadiusSpacingRatio: 30 / 45,
             // Ratio of the cursor clearing feathering relative to the spacing.
-            clearFeatherSpacingRatio: 120 / 45,
+            clearFeatherSpacingRatio: 200 / 45,
         },
         // --- PHYSICS ---
         // Stiffness of the arrow spring physics (higher = stiffer).
@@ -157,8 +157,8 @@ export const CONFIG = {
         },
         // --- IDLE ANIMATION CONFIGURATION ---
         idle: {
-            timeout: 3000,          // Time in ms before idle mode starts
-            winkIntervalMin: 3000,  // Min time between winks
+            timeout: 3500,          // Time in ms before idle mode starts
+            winkIntervalMin: 2000,  // Min time between winks
             winkIntervalMax: 7000,  // Max time between winks
             winkDuration: 600,      // Duration of a single wink
             winkIntensity: 0.65,    // How much the flower opens (0-1)
