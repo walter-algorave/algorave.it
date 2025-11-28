@@ -145,7 +145,7 @@ export const CONFIG = {
         // --- LABEL CONFIGURATION ---
         labelConfig: {
             fontSizeRatio: 75 / BASE_SHORT_SIDE,
-            fontFamily: 'SF Pro Display',
+            fontFamily: 'SF Pro Rounded',
             fontWeight: 400,
             color: 30,
             // Clear area around the text (hard push)
