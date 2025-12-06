@@ -108,6 +108,10 @@ export const CONFIG = {
         initialHoleRadiusRatio: 20 / BASE_SHORT_SIDE,
         // Ratio of the tap lock radius relative to the base short side.
         tapLockRadiusRatio: 50 / BASE_SHORT_SIDE,
+        // Ratio of the snap radius (force bloom) relative to the base short side.
+        snapRadiusRatio: 70 / BASE_SHORT_SIDE,
+        // Ratio of the arrow snap radius (force arrows to center) relative to the base short side.
+        arrowSnapRadiusRatio: 90 / BASE_SHORT_SIDE,
         // Threshold for starting the reveal animation.
         revealStart: 0.20,
         // Minimum interpolation rate for activation.
@@ -263,6 +267,8 @@ export function buildResponsiveFlowerConfig(p, base, instanceConfig) {
         holePaddingRatio,
         clearRadiusRatio,
         clearFeatherRatio,
+        snapRadiusRatio,
+        arrowSnapRadiusRatio,
         ...rest
     } = merged;
 
@@ -290,6 +296,8 @@ export function buildResponsiveFlowerConfig(p, base, instanceConfig) {
         clearFeather: clearFeatherPx * layoutScale,
         initialHoleRadius: (merged.initialHoleRadiusRatio * BASE_SHORT_SIDE) * layoutScale,
         tapLockRadius: (merged.tapLockRadiusRatio * BASE_SHORT_SIDE) * layoutScale,
+        snapRadius: (merged.snapRadiusRatio * BASE_SHORT_SIDE) * layoutScale,
+        arrowSnapRadius: (merged.arrowSnapRadiusRatio * BASE_SHORT_SIDE) * layoutScale,
         // Calculate absolute position if x/y are provided as ratios
         x: instanceConfig.x !== undefined ? instanceConfig.x * p.width : undefined,
         y: instanceConfig.y !== undefined ? instanceConfig.y * p.height : undefined,

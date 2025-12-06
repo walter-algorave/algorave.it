@@ -8,6 +8,8 @@ export class BloomingFlower {
             revealRadius = 220,
             initialHoleRadius = 0,
             tapLockRadius = 0,
+            snapRadius = 0,
+            arrowSnapRadius = 0,
             holePadding = 30,
             clearRadius = 0,
             clearFeather = 0,
@@ -41,6 +43,8 @@ export class BloomingFlower {
         this.revealRadius = revealRadius;
         this.initialHoleRadius = initialHoleRadius;
         this.tapLockRadius = tapLockRadius;
+        this.snapRadius = snapRadius;
+        this.arrowSnapRadius = arrowSnapRadius;
         this.holePadding = holePadding;
         this.clearRadius = clearRadius;
         this.clearFeather = clearFeather;
@@ -186,6 +190,11 @@ export class BloomingFlower {
             this.activation = targetActivation;
         }
 
+        // Applies a strong lerp (0.3) to create a confident "snap" effect.
+        if (this.snapRadius && dist < this.snapRadius) {
+            this.activation = this.p.lerp(this.activation, 1.0, 0.3);
+        }
+
         // Calculate idle hole activation
         const idleHoleActivation = this.idleActivation * (this.idleConfig?.holeIntensity ?? 0.3);
 
@@ -223,7 +232,12 @@ export class BloomingFlower {
         const clearRadius = this.clearRadius * effectiveActivation;
         const clearFeather = this.clearFeather;
 
-        this._hole = { center, radius, clearRadius, clearFeather, activation: effectiveActivation };
+        let snapCenter = null;
+        if (this.arrowSnapRadius && dist < this.arrowSnapRadius) {
+            snapCenter = this.center;
+        }
+
+        this._hole = { center, radius, clearRadius, clearFeather, activation: effectiveActivation, snapCenter };
 
         // Update label state as part of the compute cycle
         if (this.label) {

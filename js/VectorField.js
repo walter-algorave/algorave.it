@@ -61,6 +61,8 @@ export class VectorField {
         this.pointerInCanvas = false;
 
         this.smoothedMouse = p.createVector(0, 0);
+        this.smoothedRotationTarget = p.createVector(0, 0); // For smooth arrow transition
+        this._rotationInit = false;
         this._mouseInit = false;
 
         // Reusable temporary vectors
@@ -231,6 +233,27 @@ export class VectorField {
         const blendingFactor = 1 - maxActivation;
         const cursorClearRadius = this.cursorClearRadius * pointerPresence * blendingFactor;
         const cursorClearFeather = this.cursorClearFeather * pointerPresence * blendingFactor;
+
+        // Determine rotation target
+        let rotationTarget = m;
+        
+        for (const h of activeHoles) {
+            if (h.snapCenter) {
+                rotationTarget = h.snapCenter;
+                // We can break on first find, or let last one win. 
+                // Since flowers are usually distinct, first one is fine.
+                break; 
+            }
+        }
+
+        // Smoothly interpolate the actual rotation target
+        // If not initialized, set valid immediately.
+        if (!this._rotationInit) {
+             this.smoothedRotationTarget.set(rotationTarget);
+             this._rotationInit = true;
+        } else {
+             this.smoothedRotationTarget.lerp(rotationTarget, this.mouseLerp);
+        }
 
         for (let i = 0; i < this.base.length; i++) {
             const base = this.base[i];
@@ -434,7 +457,8 @@ export class VectorField {
             pos.add(vel);
 
             // Rotation Calculation
-            this._tmpDirToMouse.set(m);
+            // Default to looking at mouse
+            this._tmpDirToMouse.set(this.smoothedRotationTarget); // Use the smoothed target
             this._tmpDirToMouse.sub(pos);
 
             const angle = this._tmpDirToMouse.magSq() > this.angleEpsilon
