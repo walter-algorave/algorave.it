@@ -113,6 +113,8 @@ export const CONFIG = {
         // Ratio of the arrow snap radius (force arrows to center) relative to the base short side.
         arrowSnapRadiusRatio: 90 / BASE_SHORT_SIDE,
         // Threshold for starting the reveal animation.
+        // Interpolation factor for the snap-to-bloom effect ("confident" open lerp).
+        snapLerpRate: 0.3,
         revealStart: 0.20,
         // Minimum interpolation rate for activation.
         activationLerpMinRate: 0.025,
@@ -171,13 +173,14 @@ export const CONFIG = {
         }
     },
     // Array of flower instances to display.
+    // To add a flower: add an entry with id, sprite path, x/y (0–1 normalized), and label.
+    // gridCols only needed here if this flower's sprite sheet differs from CONFIG.flower.gridCols.
     flowers: [
         {
             id: 'flower-1',
             sprite: './assets/daisy_sprite.webp',
             x: 0.25,
             y: 0.25,
-            gridCols: 6,
             label: "Daisy Flower"
         },
         {
@@ -185,7 +188,6 @@ export const CONFIG = {
             sprite: './assets/rose_sprite.webp',
             x: 0.75,
             y: 0.25,
-            gridCols: 6,
             label: "Rose"
         },
         {
@@ -193,7 +195,6 @@ export const CONFIG = {
             sprite: './assets/anemone_sprite.webp',
             x: 0.25,
             y: 0.75,
-            gridCols: 6,
             label: "Anemone"
         }
     ]
@@ -205,43 +206,57 @@ export const CONFIG = {
 
 // Computes scaling metrics based on the current viewport dimensions.
 export function computeViewportMetrics(p) {
-    const widthRatio = p.windowWidth / BASE_VIEWPORT.width;
-    const heightRatio = p.windowHeight / BASE_VIEWPORT.height;
-    const layoutScale = p.constrain(Math.min(widthRatio, heightRatio), 0.45, 1.6);
-    const diagonal = Math.hypot(p.windowWidth, p.windowHeight);
-    const reachScale = p.constrain(diagonal / BASE_DIAGONAL, 0.5, 1.8);
-    return { layoutScale, reachScale };
+    // Scale indipendente basato sul MONITOR FISICO, non sulla finestra! (True Physical Density proxy).
+    // Ancorandoci al `displayWidth` la griglia/fiori non si rimpiccioliscono stringendo la finestra,
+    // eppure rimangono ritarati sulla densità tipica del dispositivo (es. 0.75 per un monitor 1080p,
+    // o 0.45 (tetto minimo) per uno smartphone mobile).
+    const physicalScale = p.constrain(p.displayWidth / BASE_VIEWPORT.width, 0.45, 1.5);
+    const flowerScale = physicalScale;
+    
+    // Anche l'area d'influenza (reachScale) deve essere ancorata all'hardware,
+    // altrimenti stringere la finestra ridurrebbe il raggio in cui il fiore si accorge del mouse!
+    const displayDiagonal = Math.hypot(p.displayWidth, p.displayHeight);
+    const reachScale = p.constrain(displayDiagonal / BASE_DIAGONAL, 0.5, 1.8);
+    
+    return { reachScale, flowerScale, physicalScale };
 }
 
 // Computes a density compensation factor for smaller screens.
 export function computeDensityCompensation(p, {
     minShortSide = 420,
     maxShortSide = 1280,
-    boost = 1.3
+    boost = 1.6
 } = {}) {
     if (maxShortSide <= minShortSide) {
         return boost;
     }
-    const shortSide = Math.min(p.windowWidth, p.windowHeight);
+    // TRUE PHYSICAL DENSITY: Usa la dimensione del monitor fisico (display), non della finestra,
+    // altrimenti stringere la finestra su desktop attiverebbe il boost per mobile!
+    const shortSide = Math.min(p.displayWidth, p.displayHeight);
     const t = p.constrain((shortSide - minShortSide) / (maxShortSide - minShortSide), 0, 1);
     return p.lerp(boost, 1, t);
 }
 
 // Builds the responsive configuration for the vector field.
 export function buildResponsiveFieldConfig(p, base) {
-    const { layoutScale, reachScale } = computeViewportMetrics(p);
+    const { physicalScale, reachScale } = computeViewportMetrics(p);
     const {
         spacingRatio,
         arrowLenSpacingRatio,
         falloffMultiplier,
         densityCompensation,
-        cursor, // New cursor object
+        cursor,
         ...rest
     } = base;
 
-    const baseSpacing = spacingRatio * BASE_VIEWPORT.width;
+    // Ritarato: applichiamo "physicalScale" per ripristinare visivamente la medesima 
+    // grandezza di frecce a cui eri abituato con la finestra massimizzata (es. ~75% su un 1080p).
+    const baseSpacing = spacingRatio * BASE_VIEWPORT.width * physicalScale;
     const densityFactor = computeDensityCompensation(p, densityCompensation);
-    const spacing = baseSpacing * layoutScale * densityFactor;
+    
+    // TRUE PHYSICAL DENSITY: we no longer multiply by layoutScale. 
+    // Spacing only depends on base configuration + mobile density boost.
+    const spacing = baseSpacing * densityFactor;
 
     return {
         ...rest,
@@ -249,58 +264,58 @@ export function buildResponsiveFieldConfig(p, base) {
         arrowLen: spacing * arrowLenSpacingRatio,
         cursorClearRadius: spacing * (cursor?.clearRadiusSpacingRatio ?? 0),
         cursorClearFeather: spacing * (cursor?.clearFeatherSpacingRatio ?? 0),
-        falloffMultiplier: falloffMultiplier * reachScale,
-        pointerPresence: base.pointerPresence // Ensure this is passed through
+        falloffMultiplier: falloffMultiplier * reachScale
+        // pointerPresence is already included via ...rest
     };
 }
 
 // Builds the responsive configuration for a single flower instance.
 export function buildResponsiveFlowerConfig(p, base, instanceConfig) {
-    const { layoutScale, reachScale } = computeViewportMetrics(p);
+    const { reachScale, flowerScale } = computeViewportMetrics(p);
 
-    // Merge base and instance config so overrides take precedence
+    // Merge base defaults with per-instance overrides.
     const merged = { ...base, ...instanceConfig };
 
+    // Extract ALL ratio-keyed fields so they don't leak into ...rest.
+    // Everything remaining in ...rest is a resolved, non-ratio value passed through as-is.
     const {
         radiusRatio,
         revealRadiusDiagonalRatio,
         holePaddingRatio,
         clearRadiusRatio,
         clearFeatherRatio,
+        initialHoleRadiusRatio,
+        tapLockRadiusRatio,
         snapRadiusRatio,
         arrowSnapRadiusRatio,
+        labelConfig: rawLabelConfig,
+        x: xRatio,
+        y: yRatio,
         ...rest
     } = merged;
 
-    const radiusPx = radiusRatio * BASE_SHORT_SIDE;
-    const holePaddingPx = holePaddingRatio * BASE_SHORT_SIDE;
-    const clearRadiusPx = clearRadiusRatio * BASE_SHORT_SIDE;
-    const clearFeatherPx = clearFeatherRatio * BASE_SHORT_SIDE;
-    const revealRadiusPx = revealRadiusDiagonalRatio * BASE_DIAGONAL;
-
-    // Label config scaling
-    const labelConfig = merged.labelConfig ? {
-        ...merged.labelConfig,
-        fontSize: (merged.labelConfig.fontSizeRatio || 0.02) * BASE_SHORT_SIDE * layoutScale,
-        offsetY: (merged.labelConfig.offsetYRatio || 0.1) * BASE_SHORT_SIDE * layoutScale,
-        clearPadding: (merged.labelConfig.clearPaddingRatio || 0.02) * BASE_SHORT_SIDE * layoutScale,
-        featherPadding: (merged.labelConfig.featherPaddingRatio || 0.04) * BASE_SHORT_SIDE * layoutScale
+    // Scale label config ratios to px.
+    const labelConfig = rawLabelConfig ? {
+        ...rawLabelConfig,
+        fontSize:      (rawLabelConfig.fontSizeRatio      ?? 0.02) * BASE_SHORT_SIDE * flowerScale,
+        offsetY:       (rawLabelConfig.offsetYRatio       ?? 0.10) * BASE_SHORT_SIDE * flowerScale,
+        clearPadding:  (rawLabelConfig.clearPaddingRatio  ?? 0.02) * BASE_SHORT_SIDE * flowerScale,
+        featherPadding:(rawLabelConfig.featherPaddingRatio ?? 0.04) * BASE_SHORT_SIDE * flowerScale
     } : undefined;
 
     return {
         ...rest,
-        radius: radiusPx * layoutScale,
-        revealRadius: revealRadiusPx * reachScale,
-        holePadding: holePaddingPx * layoutScale,
-        clearRadius: clearRadiusPx * layoutScale,
-        clearFeather: clearFeatherPx * layoutScale,
-        initialHoleRadius: (merged.initialHoleRadiusRatio * BASE_SHORT_SIDE) * layoutScale,
-        tapLockRadius: (merged.tapLockRadiusRatio * BASE_SHORT_SIDE) * layoutScale,
-        snapRadius: (merged.snapRadiusRatio * BASE_SHORT_SIDE) * layoutScale,
-        arrowSnapRadius: (merged.arrowSnapRadiusRatio * BASE_SHORT_SIDE) * layoutScale,
-        // Calculate absolute position if x/y are provided as ratios
-        x: instanceConfig.x !== undefined ? instanceConfig.x * p.width : undefined,
-        y: instanceConfig.y !== undefined ? instanceConfig.y * p.height : undefined,
+        radius:           (radiusRatio              * BASE_SHORT_SIDE) * flowerScale,
+        revealRadius:     (revealRadiusDiagonalRatio * BASE_DIAGONAL)  * reachScale,
+        holePadding:      (holePaddingRatio          * BASE_SHORT_SIDE) * flowerScale,
+        clearRadius:      (clearRadiusRatio          * BASE_SHORT_SIDE) * flowerScale,
+        clearFeather:     (clearFeatherRatio         * BASE_SHORT_SIDE) * flowerScale,
+        initialHoleRadius:(initialHoleRadiusRatio    * BASE_SHORT_SIDE) * flowerScale,
+        tapLockRadius:    (tapLockRadiusRatio        * BASE_SHORT_SIDE) * flowerScale,
+        snapRadius:       (snapRadiusRatio           * BASE_SHORT_SIDE) * flowerScale,
+        arrowSnapRadius:  (arrowSnapRadiusRatio      * BASE_SHORT_SIDE) * flowerScale,
+        x: xRatio !== undefined ? xRatio * p.width  : undefined,
+        y: yRatio !== undefined ? yRatio * p.height : undefined,
         labelConfig
     };
 }

@@ -1,5 +1,6 @@
 import {
     CONFIG,
+    BASE_VIEWPORT,
     buildResponsiveConfigs
 } from "./config.js";
 import { VectorField } from "./VectorField.js";
@@ -49,29 +50,58 @@ const sketch = (p) => {
         p.noFill();
 
         const { field: fieldConfig, flowers: flowerConfigs } = buildResponsiveConfigs(p);
-        const baseSpacing = CONFIG.field.spacingRatio * 2560;
-        const spacingRatio = fieldConfig.spacing / baseSpacing;
-        p.strokeWeight(CONFIG.canvas.strokeWeight * spacingRatio);
 
         field = new VectorField(p, fieldConfig);
 
-        // Initialize multiple flowers
+        // Initialize flowers and snap each to the nearest grid cell center.
         bloomingFlowers = flowerConfigs.map(config => {
             const sprite = loadedSprites.get(config.sprite);
-            const flower = new BloomingFlower(p, config, sprite);
-            // Snap to grid
-            const snapped = field.getNearestGridCenter(flower.center.x, flower.center.y);
-            flower.center.set(snapped.x, snapped.y);
-            return flower;
+            return new BloomingFlower(p, config, sprite);
         });
+        snapFlowersToGrid(bloomingFlowers, field);
 
+        applyLayout(p, fieldConfig);
         p.background(CONFIG.canvas.background);
 
-        // Interaction Listeners
-        canvas.mouseOver(handlePointerEnter);
-        canvas.mouseOut(handlePointerLeave);
-        canvas.mouseOver(handlePointerEnter);
-        canvas.mouseOut(handlePointerLeave);
+        // Interaction Listeners - Pointer Events API (Native)
+        const el = canvas.elt;
+        
+        // Prevent default browser touch interactions (fallback for older mobile browsers)
+        el.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+
+        el.addEventListener('pointerdown', (e) => {
+            handlePointerEnter();
+            if (e.pointerType !== 'mouse') lastTouchTime = p.millis();
+        });
+
+        el.addEventListener('pointermove', (e) => {
+            handlePointerEnter();
+        });
+
+        const handlePointerReleaseOrLeave = (e) => {
+            // Mouse 'up' does not mean it left the canvas, so stay active (hovering).
+            if (e.pointerType === 'mouse' && e.type === 'pointerup') return;
+
+            // Check if pointer is over any flower for tap-lock
+            let isOverFlower = false;
+            for (const flower of bloomingFlowers) {
+                const d = p.dist(p.mouseX, p.mouseY, flower.center.x, flower.center.y);
+                if (d < flower.tapLockRadius) {
+                    isOverFlower = true;
+                    break;
+                }
+            }
+
+            if (isOverFlower) {
+                handlePointerEnter();
+            } else {
+                handlePointerLeave();
+            }
+        };
+
+        el.addEventListener('pointerup', handlePointerReleaseOrLeave);
+        el.addEventListener('pointercancel', handlePointerReleaseOrLeave);
+        el.addEventListener('pointerleave', handlePointerReleaseOrLeave);
 
         lastFlowerInteractionTime = p.millis();
     };
@@ -82,27 +112,26 @@ const sketch = (p) => {
 
     p.draw = () => {
         p.background(CONFIG.canvas.background);
+
+        // Update label state before updateAndDraw so _extraRepulsion is ready for this frame.
+        // Uses previous frame's activation (one-frame lag) — imperceptible due to lerp.
+        for (const flower of bloomingFlowers) {
+            if (flower.label) flower.updateLabel(field);
+        }
+
         field.updateAndDraw(p.mouseX, p.mouseY, bloomingFlowers);
 
-        // Draw each flower and its label
-        let anyFlowerActive = false;
         const threshold = CONFIG.flower.idle?.interactionThreshold ?? 0.1;
+        const idleTimeout = CONFIG.flower.idle?.timeout ?? 5000;
+        const now = p.millis();
+        const isIdle = (now - lastFlowerInteractionTime) > idleTimeout;
 
+        // Single loop: check interaction, update idle state and draw
         for (const flower of bloomingFlowers) {
             if (flower.activation > threshold) {
-                anyFlowerActive = true;
+                lastFlowerInteractionTime = now;
             }
-        }
-
-        if (anyFlowerActive) {
-            lastFlowerInteractionTime = p.millis();
-        }
-
-        const idleTimeout = CONFIG.flower.idle?.timeout ?? 5000;
-        const isIdle = (p.millis() - lastFlowerInteractionTime) > idleTimeout;
-
-        for (const flower of bloomingFlowers) {
-            flower.updateIdle(p.millis(), isIdle);
+            flower.updateIdle(now, isIdle);
             flower.draw();
             flower.drawLabel();
         }
@@ -115,66 +144,14 @@ const sketch = (p) => {
     p.windowResized = () => {
         p.resizeCanvas(p.windowWidth, p.windowHeight);
         const { field: fieldConfig, flowers: flowerConfigs } = buildResponsiveConfigs(p);
-        const baseSpacing = CONFIG.field.spacingRatio * 2560;
-        const spacingRatio = fieldConfig.spacing / baseSpacing;
-        p.strokeWeight(CONFIG.canvas.strokeWeight * spacingRatio);
 
+        applyLayout(p, fieldConfig);
         field.applyResponsiveConfig(fieldConfig);
 
-        // Update all flowers
         for (let i = 0; i < bloomingFlowers.length; i++) {
             bloomingFlowers[i].applyResponsiveConfig(flowerConfigs[i]);
-            // Snap to grid
-            const snapped = field.getNearestGridCenter(bloomingFlowers[i].center.x, bloomingFlowers[i].center.y);
-            bloomingFlowers[i].center.set(snapped.x, snapped.y);
         }
-    };
-
-    p.mouseMoved = () => {
-        if (p.millis() - lastTouchTime < 500) return;
-        handlePointerEnter();
-    };
-
-    p.mouseDragged = () => {
-        if (p.millis() - lastTouchTime < 500) return;
-        handlePointerEnter();
-    };
-
-    p.mouseOut = () => {
-        handlePointerLeave();
-    };
-
-    p.touchStarted = () => {
-        lastTouchTime = p.millis();
-        handlePointerEnter();
-    };
-
-    p.touchEnded = (event) => {
-        // Ignore mouse events masquerading as touch events (fixes desktop click bug)
-        if (event && event.type === 'mouseup') return;
-
-        lastTouchTime = p.millis();
-
-        if (typeof p.touches === "undefined" || p.touches.length === 0) {
-            // Check if we are releasing over a flower
-            let isOverFlower = false;
-            for (const flower of bloomingFlowers) {
-                // Check if the last touch position is within the flower's interaction zone
-                const d = p.dist(p.mouseX, p.mouseY, flower.center.x, flower.center.y);
-                if (d < flower.tapLockRadius) {
-                    isOverFlower = true;
-                    break;
-                }
-            }
-
-            if (isOverFlower) {
-                // Keep the field and flower active
-                handlePointerEnter();
-            } else {
-                // Close the field
-                handlePointerLeave();
-            }
-        }
+        snapFlowersToGrid(bloomingFlowers, field);
     };
 
     // -------------------------------------------------------------------------
@@ -182,15 +159,30 @@ const sketch = (p) => {
     // -------------------------------------------------------------------------
 
     function handlePointerEnter() {
-        if (field) {
-            field.setPointerInCanvas(true);
-        }
+        if (field) field.setPointerInCanvas(true);
     }
 
     function handlePointerLeave() {
         if (field && (typeof p.touches === "undefined" || p.touches.length === 0)) {
             field.resetPointerState();
         }
+    }
+
+    // Snaps each flower's center to the nearest grid cell center.
+    // Called after setup and after every resize so flowers always sit on a grid node.
+    function snapFlowersToGrid(flowers, field) {
+        for (const flower of flowers) {
+            const snapped = field.getNearestGridCenter(flower.center.x, flower.center.y);
+            flower.center.set(snapped.x, snapped.y);
+        }
+    }
+
+    // Applies layout-dependent stroke weight. Scales with spacing so arrows
+    // stay visually consistent across different viewport sizes and density factors.
+    function applyLayout(p, fieldConfig) {
+        const baseSpacing = CONFIG.field.spacingRatio * BASE_VIEWPORT.width;
+        const spacingRatio = fieldConfig.spacing / baseSpacing;
+        p.strokeWeight(CONFIG.canvas.strokeWeight * spacingRatio);
     }
 };
 

@@ -61,7 +61,11 @@ export class VectorField {
         this.pointerInCanvas = false;
 
         this.smoothedMouse = p.createVector(0, 0);
-        this.smoothedRotationTarget = p.createVector(0, 0); // For smooth arrow transition
+        // smoothedRotationTarget is normally equal to smoothedMouse, but switches to a
+        // flower's center when the cursor enters that flower's arrowSnapRadius. This makes
+        // nearby arrows point toward the flower rather than the raw cursor, reinforcing the
+        // "pulled inward" feel. Uses the same lerp rate as mouse smoothing.
+        this.smoothedRotationTarget = p.createVector(0, 0);
         this._rotationInit = false;
         this._mouseInit = false;
 
@@ -114,6 +118,12 @@ export class VectorField {
         }
     }
 
+    /**
+     * Returns the center of the grid cell that contains point (x, y).
+     * Cell centers sit halfway between grid vertices: the -0.5 shift before
+     * rounding finds the cell index, then +0.5 recovers its center.
+     * Used to snap flowers and labels to a consistent sub-grid position.
+     */
     getNearestGridCenter(x, y) {
         const col = Math.round((x - this.gridX0) / this.spacing - 0.5);
         const row = Math.round((y - this.gridY0) / this.spacing - 0.5);
@@ -145,7 +155,7 @@ export class VectorField {
     // PHYSICS & UPDATE
     // =========================================================================
 
-    updateAndDraw(mx, my, revealTargets = [], extraRepulsors = []) {
+    updateAndDraw(mx, my, revealTargets = []) {
         const curMouse = this.p.createVector(mx, my);
         if (!this._mouseInit) {
             this.smoothedMouse.set(curMouse);
@@ -161,7 +171,7 @@ export class VectorField {
 
         const activeHoles = [];
         for (const target of targets) {
-            const data = target.computeHole(m.copy(), this);
+            const data = target.computeHole(m.copy());
             if (data) {
                 data.type = 'circle';
                 activeHoles.push(data);
@@ -171,13 +181,6 @@ export class VectorField {
                 if (extraRepulsor) {
                     activeHoles.push(extraRepulsor);
                 }
-            }
-        }
-
-        // Add extra repulsors (like labels passed manually, though we prefer automatic now)
-        for (const repulsor of extraRepulsors) {
-            if (repulsor) {
-                activeHoles.push(repulsor);
             }
         }
 
@@ -234,25 +237,22 @@ export class VectorField {
         const cursorClearRadius = this.cursorClearRadius * pointerPresence * blendingFactor;
         const cursorClearFeather = this.cursorClearFeather * pointerPresence * blendingFactor;
 
-        // Determine rotation target
+        // Default rotation target is the smoothed mouse.
+        // Switches to a flower's center when the cursor is inside its arrowSnapRadius,
+        // making nearby arrows point toward the flower (visual "pull inward" effect).
         let rotationTarget = m;
-        
         for (const h of activeHoles) {
             if (h.snapCenter) {
                 rotationTarget = h.snapCenter;
-                // We can break on first find, or let last one win. 
-                // Since flowers are usually distinct, first one is fine.
-                break; 
+                break; // First flower with snapCenter wins; they are spatially distinct.
             }
         }
 
-        // Smoothly interpolate the actual rotation target
-        // If not initialized, set valid immediately.
         if (!this._rotationInit) {
-             this.smoothedRotationTarget.set(rotationTarget);
-             this._rotationInit = true;
+            this.smoothedRotationTarget.set(rotationTarget);
+            this._rotationInit = true;
         } else {
-             this.smoothedRotationTarget.lerp(rotationTarget, this.mouseLerp);
+            this.smoothedRotationTarget.lerp(rotationTarget, this.mouseLerp);
         }
 
         for (let i = 0; i < this.base.length; i++) {
@@ -383,62 +383,11 @@ export class VectorField {
                 }
             }
 
-            if (cursorClearRadius > 0) {
-                this._tmpDiff.set(base);
-                this._tmpDiff.sub(m);
-                const d = this._tmpDiff.mag();
-                if (d < cursorClearRadius + cursorClearFeather) {
-                    if (d > this.directionEpsilon) {
-                        this._tmpDir.set(this._tmpDiff);
-                        this._tmpDir.mult(1 / d);
-                    } else {
-                        this._tmpDir.set(1, 0);
-                    }
-
-                    let exclusionPush = 0;
-                    if (d < cursorClearRadius) {
-                        exclusionPush = (cursorClearRadius - d) + (cursorClearFeather * 0.25);
-                    } else if (cursorClearFeather > 0) {
-                        const t = 1 - (d - cursorClearRadius) / cursorClearFeather;
-                        const eased = t * t;
-                        exclusionPush = cursorClearFeather * eased * 0.25;
-                    }
-
-                    if (exclusionPush > 0) {
-                        this._tmpDir.mult(exclusionPush);
-                        this._tmpTarget.add(this._tmpDir);
-                    }
-                }
-            }
+            this._applyClearPush(base, m, cursorClearRadius, cursorClearFeather);
 
             for (const repulsor of repulsors) {
                 if (repulsor.type === 'circle' && repulsor.holeClearRadius > 0) {
-                    this._tmpDiff.set(base);
-                    this._tmpDiff.sub(repulsor.center);
-                    const d = this._tmpDiff.mag();
-
-                    if (d < repulsor.holeClearRadius + repulsor.holeClearFeather) {
-                        if (d > this.directionEpsilon) {
-                            this._tmpDir.set(this._tmpDiff);
-                            this._tmpDir.mult(1 / d);
-                        } else {
-                            this._tmpDir.set(1, 0);
-                        }
-
-                        let exclusionPush = 0;
-                        if (d < repulsor.holeClearRadius) {
-                            exclusionPush = (repulsor.holeClearRadius - d) + (repulsor.holeClearFeather * 0.25);
-                        } else if (repulsor.holeClearFeather > 0) {
-                            const t = 1 - (d - repulsor.holeClearRadius) / repulsor.holeClearFeather;
-                            const eased = t * t;
-                            exclusionPush = repulsor.holeClearFeather * eased * 0.25;
-                        }
-
-                        if (exclusionPush > 0) {
-                            this._tmpDir.mult(exclusionPush);
-                            this._tmpTarget.add(this._tmpDir);
-                        }
-                    }
+                    this._applyClearPush(base, repulsor.center, repulsor.holeClearRadius, repulsor.holeClearFeather);
                 }
             }
 
@@ -477,6 +426,46 @@ export class VectorField {
     // RENDERING HELPERS
     // =========================================================================
 
+    /**
+     * Applies a soft circular exclusion push to this._tmpTarget.
+     * Arrows inside `clearRadius` are pushed firmly outward.
+     * Arrows in the feather zone get a progressively weaker push.
+     *
+     * @param {p5.Vector} base    - Arrow base position
+     * @param {p5.Vector} center  - Center of the exclusion zone
+     * @param {number}    clearRadius  - Hard exclusion radius (no arrows inside)
+     * @param {number}    clearFeather - Soft transition radius beyond clearRadius
+     */
+    _applyClearPush(base, center, clearRadius, clearFeather) {
+        if (clearRadius <= 0 && clearFeather <= 0) return;
+
+        this._tmpDiff.set(base);
+        this._tmpDiff.sub(center);
+        const d = this._tmpDiff.mag();
+
+        if (d >= clearRadius + clearFeather) return;
+
+        if (d > this.directionEpsilon) {
+            this._tmpDir.set(this._tmpDiff);
+            this._tmpDir.mult(1 / d);
+        } else {
+            this._tmpDir.set(1, 0);
+        }
+
+        let push = 0;
+        if (d < clearRadius) {
+            push = (clearRadius - d) + (clearFeather * 0.25);
+        } else if (clearFeather > 0) {
+            const t = 1 - (d - clearRadius) / clearFeather;
+            push = clearFeather * (t * t) * 0.25;
+        }
+
+        if (push > 0) {
+            this._tmpDir.mult(push);
+            this._tmpTarget.add(this._tmpDir);
+        }
+    }
+
     _arrow(len) {
         const { shaftRatio, tipLengthRatio, tipWidthRatio } = this.arrowShape;
         const shaftHalf = len * shaftRatio;
@@ -506,8 +495,7 @@ export class VectorField {
     }
 
     _hasActivePointer() {
-        const hasTouch = typeof this.p.touches !== "undefined" && this.p.touches.length > 0;
-        return hasTouch || this.pointerInCanvas;
+        return this.pointerInCanvas;
     }
 
     setPointerInCanvas(state) {
@@ -518,5 +506,6 @@ export class VectorField {
         this.pointerInCanvas = false;
         this.pointerPresenceValue = 0;
         this._mouseInit = false;
+        this._rotationInit = false;
     }
 }

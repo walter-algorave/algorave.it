@@ -8,14 +8,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Vector Field — Repulsione Mouse</title>
+  <title>algorave.it</title>
+  <link rel="icon" href="data:,">
   <style>
     html,
     body {
       margin: 0;
       height: 100%;
-      background: #fafafa;
+      /* No background here — the canvas covers the full viewport.
+         The canvas background color is controlled by CONFIG.canvas.background.
+         Removing it prevents a color flash before the canvas initializes. */
       overflow: hidden;
+      touch-action: none;
+      overscroll-behavior: none;
+      user-select: none;
       font-family: 'Inter', system-ui, sans-serif;
     }
   </style>

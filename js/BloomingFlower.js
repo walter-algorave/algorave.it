@@ -2,8 +2,11 @@ export class BloomingFlower {
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
+    // NOTE: Defaults here are fallbacks only — in normal usage all values arrive
+    // pre-built from buildResponsiveFlowerConfig(). Keep them in sync with CONFIG.flower.
     constructor(p,
         {
+            // Geometry (resolved to px by buildResponsiveFlowerConfig)
             radius = 50,
             revealRadius = 220,
             initialHoleRadius = 0,
@@ -13,28 +16,35 @@ export class BloomingFlower {
             holePadding = 30,
             clearRadius = 0,
             clearFeather = 0,
-            revealStart = 0.25,
+            // Interaction
+            revealStart = 0.20,
+            snapLerpRate = 0.3,
+            // Activation lerp rates
             activationLerpMinRate = 0.025,
             activationLerpMaxRate = 0.1,
             activationLerpDeltaWindow = 0.3,
             activationLerpMinRateExit = 0.06,
-            activationLerpMaxRateExit = 0.18,
-            fadeInExponent = 1.35,
-            frameHoldActivation = 0.14,
-            activationVisibilityThreshold = 0.02,
-            rotationMaxDegrees = 10,
-            rotationExponent = 1.2,
-            frameProgressExponent = 1.0,
-            glowBase = 0.35,
+            activationLerpMaxRateExit = 0.48,
+            // Visual — keep aligned with CONFIG.flower
+            fadeInExponent = 1.05,
+            frameHoldActivation = 0.24,
+            activationVisibilityThreshold = 0.05,
+            rotationMaxDegrees = 60,
+            rotationExponent = 1.4,
+            frameProgressExponent = 0.8,
+            glowBase = 0.45,
             glowGain = 0.65,
-            bodyScaleBase = 0.55,
+            bodyScaleBase = 0.45,
             bodyScaleGain = 0.35,
-            gridCols = 5,
-            x, // Absolute x position
-            y,  // Absolute y position
+            // Sprite sheet layout
+            gridCols = 6,
+            gridRows,  // defaults to gridCols (square sprite sheet)
+            // Instance-specific
+            x,
+            y,
             label,
             labelConfig,
-            idle // New idle config
+            idle
         } = {},
         spriteImage
     ) {
@@ -66,7 +76,9 @@ export class BloomingFlower {
         this.bodyScaleBase = bodyScaleBase;
         this.bodyScaleGain = bodyScaleGain;
         this.gridCols = gridCols;
-        this.frameCount = gridCols * gridCols;
+        this.gridRows = gridRows ?? gridCols; // Assumption: square sprite sheet unless gridRows is specified
+        this.frameCount = this.gridCols * this.gridRows;
+        this.snapLerpRate = snapLerpRate;
 
         this.label = label;
         this.labelConfig = labelConfig;
@@ -92,6 +104,9 @@ export class BloomingFlower {
         this.visible = false;
         this._hole = null;
         this._extraRepulsion = null;
+        // Cache for label text measurements — invalidated on resize via applyResponsiveConfig.
+        this._labelWidth  = null;
+        this._labelHeight = null;
     }
 
     // =========================================================================
@@ -106,18 +121,11 @@ export class BloomingFlower {
         // Update position from config if provided (responsive recalculation)
         if (config.x !== undefined && config.y !== undefined) {
             this.center.set(config.x, config.y);
-        } else {
-            this.handleResize();
         }
         this._hole = null;
-    }
-
-    handleResize() {
-        // If no specific position is set, center it. 
-        // But usually applyResponsiveConfig will handle this.
-        if (this.initialX === undefined) {
-            this.center.set(this.p.width / 2, this.p.height / 2);
-        }
+        // Font size may have changed — invalidate cached text measurements.
+        this._labelWidth  = null;
+        this._labelHeight = null;
     }
 
     updateIdle(time, isIdle) {
@@ -160,7 +168,19 @@ export class BloomingFlower {
     // LOGIC & CALCULATION
     // =========================================================================
 
-    computeHole(mouseVec, field) { // Added field arg
+    /**
+     * Updates proximity, activation, and visibility based on cursor position.
+     * Side-effects:
+     *   - this.proximity, this.activation (physics state)
+     *   - this.visible (render gate)
+     *   - this._hole (consumed by VectorField via getExtraRepulsion pipeline)
+     *
+     * Note: label state (labelActivation, _extraRepulsion) is updated separately
+     * by calling updateLabel(field) from sketch.js before each updateAndDraw call.
+     *
+     * Returns the hole descriptor, or null if not visible.
+     */
+    computeHole(mouseVec) {
         const dist = this.p.dist(mouseVec.x, mouseVec.y, this.center.x, this.center.y);
         this.proximity = this.p.constrain(1 - dist / this.revealRadius, 0, 1);
 
@@ -190,9 +210,10 @@ export class BloomingFlower {
             this.activation = targetActivation;
         }
 
-        // Applies a strong lerp (0.3) to create a confident "snap" effect.
+        // Snap to full bloom if the cursor is very close.
+        // snapLerpRate comes from CONFIG.flower.snapLerpRate (default 0.3).
         if (this.snapRadius && dist < this.snapRadius) {
-            this.activation = this.p.lerp(this.activation, 1.0, 0.3);
+            this.activation = this.p.lerp(this.activation, 1.0, this.snapLerpRate);
         }
 
         // Calculate idle hole activation
@@ -238,12 +259,6 @@ export class BloomingFlower {
         }
 
         this._hole = { center, radius, clearRadius, clearFeather, activation: effectiveActivation, snapCenter };
-
-        // Update label state as part of the compute cycle
-        if (this.label) {
-            this.updateLabel(field);
-        }
-
         return this._hole;
     }
 
@@ -268,18 +283,24 @@ export class BloomingFlower {
         this._extraRepulsion = null;
 
         if (this.labelVisible) {
-            this.p.push();
-            this.p.textSize(this.labelConfig.fontSize);
-            this.p.textFont(this.labelConfig.fontFamily);
-            const w = this.p.textWidth(this.label);
-            const h = this.labelConfig.fontSize;
-            this.p.pop();
+            // Measure text only once — cache is reset by applyResponsiveConfig on resize.
+            if (this._labelWidth === null) {
+                this.p.push();
+                this.p.textSize(this.labelConfig.fontSize);
+                this.p.textFont(this.labelConfig.fontFamily);
+                this._labelWidth  = this.p.textWidth(this.label);
+                this._labelHeight = this.labelConfig.fontSize;
+                this.p.pop();
+            }
+            const w = this._labelWidth;
+            const h = this._labelHeight;
 
             const clearPadding = this.labelConfig.clearPadding * this.labelActivation;
             const featherPadding = this.labelConfig.featherPadding;
 
-            // Calculate label center position (relative to SCREEN center)
-            // Snap to nearest grid center
+            // The label is currently always positioned at the screen center (snapped to grid).
+            // This is intentional: the label acts as a global caption for the whole canvas,
+            // not as a tooltip near the individual flower.
             const snapped = field.getNearestGridCenter(this.p.width / 2, this.p.height / 2);
             const labelCenter = this.p.createVector(snapped.x, snapped.y);
 
@@ -312,7 +333,8 @@ export class BloomingFlower {
     // =========================================================================
 
     draw() {
-        // Visible if active (physics) OR if idling (visual only)
+        // this.visible is driven by computeHole() (physics + idle hole activation).
+        // isIdleVisible is an additional check for the visual-only wink (no physics hole).
         const isIdleVisible = this.idleActivation > (this.activationVisibilityThreshold ?? 1e-4);
         if ((!this.visible && !isIdleVisible) || !this.spriteImage) {
             return;
@@ -352,8 +374,8 @@ export class BloomingFlower {
         frameIndex = this.p.constrain(frameIndex, 0, this.frameCount - 1);
 
         // Calculate source rectangle from sprite sheet
-        const frameWidth = this.spriteImage.width / this.gridCols;
-        const frameHeight = frameWidth;
+        const frameWidth  = this.spriteImage.width  / this.gridCols;
+        const frameHeight = this.spriteImage.height / this.gridRows;
 
         const col = frameIndex % this.gridCols;
         const row = Math.floor(frameIndex / this.gridCols);
