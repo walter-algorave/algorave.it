@@ -1,45 +1,42 @@
 <!doctype html>
 <html lang="it">
+  <!-- ======================================================================= -->
+  <!-- HEAD -->
+  <!-- ======================================================================= -->
 
-<!-- ======================================================================= -->
-<!-- HEAD -->
-<!-- ======================================================================= -->
-
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>algorave.it</title>
-  <link rel="icon" href="data:,">
-  <style>
-    html,
-    body {
-      margin: 0;
-      height: 100%;
-      /* No background here — the canvas covers the full viewport.
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>algorave.it</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        /* No background here — the canvas covers the full viewport.
          The canvas background color is controlled by CONFIG.canvas.background.
          Removing it prevents a color flash before the canvas initializes. */
-      overflow: hidden;
-      touch-action: none;
-      overscroll-behavior: none;
-      user-select: none;
-      font-family: 'Inter', system-ui, sans-serif;
-    }
-  </style>
-  <link href="./assets/fonts.css" rel="stylesheet">
-</head>
+        overflow: hidden;
+        touch-action: none;
+        overscroll-behavior: none;
+        user-select: none;
+        font-family: "Nunito", system-ui, sans-serif;
+      }
+    </style>
+    <link href="./assets/fonts.css" rel="stylesheet" />
+  </head>
 
-<!-- ======================================================================= -->
-<!-- BODY -->
-<!-- ======================================================================= -->
+  <!-- ======================================================================= -->
+  <!-- BODY -->
+  <!-- ======================================================================= -->
 
-<body>
-  <!-- Main Container -->
-  <main id="sketch-container"></main>
+  <body>
+    <!-- Main Container -->
+    <main id="sketch-container"></main>
 
-  <!-- Scripts -->
-  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.3/lib/p5.min.js"></script>
-  <script type="module" src="./js/sketch.js"></script>
-
-</body>
-
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.9.3/lib/p5.min.js"></script>
+    <script type="module" src="./js/sketch.js"></script>
+  </body>
 </html>

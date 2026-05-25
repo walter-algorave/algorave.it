@@ -1,423 +1,687 @@
+import { drawStyledText } from "./textUtils.js";
+
 export class BloomingFlower {
-    // =========================================================================
-    // CONSTRUCTOR
-    // =========================================================================
-    // NOTE: Defaults here are fallbacks only — in normal usage all values arrive
-    // pre-built from buildResponsiveFlowerConfig(). Keep them in sync with CONFIG.flower.
-    constructor(p,
-        {
-            // Geometry (resolved to px by buildResponsiveFlowerConfig)
-            radius = 50,
-            revealRadius = 220,
-            initialHoleRadius = 0,
-            tapLockRadius = 0,
-            snapRadius = 0,
-            arrowSnapRadius = 0,
-            holePadding = 30,
-            clearRadius = 0,
-            clearFeather = 0,
-            // Interaction
-            revealStart = 0.20,
-            snapLerpRate = 0.3,
-            // Activation lerp rates
-            activationLerpMinRate = 0.025,
-            activationLerpMaxRate = 0.1,
-            activationLerpDeltaWindow = 0.3,
-            activationLerpMinRateExit = 0.06,
-            activationLerpMaxRateExit = 0.48,
-            // Visual — keep aligned with CONFIG.flower
-            fadeInExponent = 1.05,
-            frameHoldActivation = 0.24,
-            activationVisibilityThreshold = 0.05,
-            rotationMaxDegrees = 60,
-            rotationExponent = 1.4,
-            frameProgressExponent = 0.8,
-            glowBase = 0.45,
-            glowGain = 0.65,
-            bodyScaleBase = 0.45,
-            bodyScaleGain = 0.35,
-            // Sprite sheet layout
-            gridCols = 6,
-            gridRows,  // defaults to gridCols (square sprite sheet)
-            // Instance-specific
-            x,
-            y,
-            label,
-            labelConfig,
-            idle
-        } = {},
-        spriteImage
-    ) {
-        this.p = p;
-        this.radius = radius;
-        this.revealRadius = revealRadius;
-        this.initialHoleRadius = initialHoleRadius;
-        this.tapLockRadius = tapLockRadius;
-        this.snapRadius = snapRadius;
-        this.arrowSnapRadius = arrowSnapRadius;
-        this.holePadding = holePadding;
-        this.clearRadius = clearRadius;
-        this.clearFeather = clearFeather;
-        this.revealStart = revealStart;
-        this.activationLerpMinRate = activationLerpMinRate;
-        this.activationLerpMaxRate = activationLerpMaxRate;
-        this.activationLerpDeltaWindow = activationLerpDeltaWindow;
-        this.activationLerpMinRateExit = activationLerpMinRateExit;
-        this.activationLerpMaxRateExit = activationLerpMaxRateExit;
-        this.fadeInExponent = fadeInExponent;
-        this.frameHoldActivation = frameHoldActivation;
-        this.activationVisibilityThreshold = activationVisibilityThreshold;
-        this.rotationMaxDegrees = rotationMaxDegrees;
-        this.rotationExponent = rotationExponent;
-        this.frameProgressExponent = frameProgressExponent;
-        this.rotationMaxRad = p.radians(rotationMaxDegrees);
-        this.glowBase = glowBase;
-        this.glowGain = glowGain;
-        this.bodyScaleBase = bodyScaleBase;
-        this.bodyScaleGain = bodyScaleGain;
-        this.gridCols = gridCols;
-        this.gridRows = gridRows ?? gridCols; // Assumption: square sprite sheet unless gridRows is specified
-        this.frameCount = this.gridCols * this.gridRows;
-        this.snapLerpRate = snapLerpRate;
+  // ── CONSTRUCTOR ───────────────────────────────────────────────────────────
+  // All numeric values must come pre-built from buildResponsiveFlowerConfig() —
+  // no fallback defaults; a missing key crashes loudly in dev (config = single source of truth).
+  constructor(
+    p,
+    {
+      // geometry (resolved to px by buildResponsiveFlowerConfig)
+      radius,
+      revealRadius,
+      initialHoleRadius,
+      tapLockRadius,
+      snapInRadius,
+      snapOutRadius,
+      holePadding,
+      clearRadius,
+      clearFeather,
+      // interaction
+      revealStart,
+      snapLerpRate,
+      magnetismLerpEngage,
+      magnetismLerpHover,
+      magnetismLerpLocked,
+      // activation lerp
+      activationLerpMinRate,
+      activationLerpMaxRate,
+      activationLerpDeltaWindow,
+      activationLerpMinRateExit,
+      activationLerpMaxRateExit,
+      lockedActivationRate,
+      // decoupled from lockedActivationRate: field collapses fast, sprite keeps cinematic close
+      lockedFieldActivationRate,
+      // visual
+      fadeInExponent,
+      frameHoldActivation,
+      activationVisibilityThreshold,
+      rotationMaxDegrees,
+      rotationExponent,
+      frameProgressExponent,
+      glowBase,
+      glowGain,
+      bodyScaleBase,
+      bodyScaleGain,
+      // sprite sheet
+      gridCols,
+      gridRows,
+      // instance
+      x,
+      y,
+      label,
+      labelConfig,
+      idle,
+      preview = null, // { url, … } — marks flower as clickable hotspot; consumed by PreviewManager
+      action = null, // { type: 'close' | 'link' } — preview-scoped button; BloomingFlower doesn't interpret it
+      springRelease = null,
+      pressLerpRate,
+      pressScaleGain,
+    } = {},
+    spriteImage,
+  ) {
+    this.p = p;
+    this.radius = radius;
+    this.revealRadius = revealRadius;
+    this.initialHoleRadius = initialHoleRadius;
+    this.tapLockRadius = tapLockRadius;
+    this.snapInRadius = snapInRadius;
+    this.snapOutRadius = snapOutRadius;
+    this.holePadding = holePadding;
+    this.clearRadius = clearRadius;
+    this.clearFeather = clearFeather;
+    this.revealStart = revealStart;
+    this.activationLerpMinRate = activationLerpMinRate;
+    this.activationLerpMaxRate = activationLerpMaxRate;
+    this.activationLerpDeltaWindow = activationLerpDeltaWindow;
+    this.activationLerpMinRateExit = activationLerpMinRateExit;
+    this.activationLerpMaxRateExit = activationLerpMaxRateExit;
+    this.fadeInExponent = fadeInExponent;
+    this.frameHoldActivation = frameHoldActivation;
+    this.activationVisibilityThreshold = activationVisibilityThreshold;
+    this.rotationMaxDegrees = rotationMaxDegrees;
+    this.rotationExponent = rotationExponent;
+    this.frameProgressExponent = frameProgressExponent;
+    this.rotationMaxRad = p.radians(rotationMaxDegrees);
+    this.glowBase = glowBase;
+    this.glowGain = glowGain;
+    this.bodyScaleBase = bodyScaleBase;
+    this.bodyScaleGain = bodyScaleGain;
+    this.gridCols = gridCols;
+    this.gridRows = gridRows ?? gridCols; // square unless gridRows is specified
+    this.frameCount = this.gridCols * this.gridRows;
+    this.snapLerpRate = snapLerpRate;
+    this.magnetismLerpEngage = magnetismLerpEngage;
+    this.magnetismLerpHover = magnetismLerpHover;
+    this.magnetismLerpLocked = magnetismLerpLocked;
 
-        this.label = label;
-        this.labelConfig = labelConfig;
-        this.labelActivation = 0;
-        this.labelVisible = false;
+    this.magnetism = 0;
 
-        // Idle state initialization
-        this.idleConfig = idle;
-        this.idleActivation = 0;
+    this.label = label;
+    this.labelConfig = labelConfig;
+    this.labelActivation = 0;
+    this.labelVisible = false;
+
+    // idle
+    this.idleConfig = idle;
+    this.idleActivation = 0;
+    this.isWinking = false;
+    this.nextWinkTime = 0;
+    this.winkStartTime = 0;
+
+    this.spriteImage = spriteImage;
+
+    this.center = p.createVector(x ?? p.width / 2, y ?? p.height / 2);
+
+    this.proximity = 0;
+    this.activation = 0;
+    this.animActivation = 0;
+    this.visible = false;
+    this._hole = null;
+    this._extraRepulsion = null;
+    this._labelWidth = null; // cache reset on resize via applyResponsiveConfig
+    this._labelHeight = null;
+
+    this.preview = preview;
+    this.action = action;
+
+    // press: lerps 0→1 while pointer is held
+    this.pressed = false;
+    this.pressAmount = 0;
+    this.pressLerpRate = pressLerpRate;
+    this.pressScaleGain = pressScaleGain;
+
+    // lock: when true, computeHole ignores proximity and lerps toward lockedActivationTarget
+    this.interactionLocked = false;
+    this.lockedActivationTarget = 0;
+    this.lockedActivationRate = lockedActivationRate;
+    this.lockedFieldActivationRate = lockedFieldActivationRate;
+
+    // drives circular hole geometry; tracks activation when unlocked, collapses fast when locked
+    this.fieldActivation = 0;
+
+    // clicked then released outside — locked for close animation, self-unlocks once fully closed
+    this._tapCancelled = false;
+
+    // spring release: visual overshoot on pointer up (rise → hold → fall)
+    this.springRelease = springRelease;
+    this.springAmount = 0;
+    this._springActive = false;
+    this._springPeaked = false;
+    this._springPeakFrames = 0;
+  }
+
+  // ── RESPONSIVE ────────────────────────────────────────────────────────────
+
+  applyResponsiveConfig(config) {
+    Object.assign(this, config);
+    if (this.rotationMaxDegrees !== undefined) {
+      this.rotationMaxRad = this.p.radians(this.rotationMaxDegrees);
+    }
+
+    if (config.x !== undefined && config.y !== undefined) {
+      this.center.set(config.x, config.y);
+    }
+    this._hole = null;
+    // font size may have changed — invalidate cached text measurements
+    this._labelWidth = null;
+    this._labelHeight = null;
+  }
+
+  // ── IDLE ──────────────────────────────────────────────────────────────────
+
+  updateIdle(time, isIdle) {
+    if (this.interactionLocked) {
+      this.idleActivation = 0;
+      this.isWinking = false;
+      return;
+    }
+    if (!this.idleConfig) return;
+
+    if (!isIdle || this.activation > 0.01) {
+      this.idleActivation = 0;
+      this.isWinking = false;
+      this.nextWinkTime =
+        time +
+        this.p.random(
+          this.idleConfig.winkIntervalMin,
+          this.idleConfig.winkIntervalMax,
+        );
+      return;
+    }
+
+    if (!this.isWinking && time > this.nextWinkTime) {
+      this.isWinking = true;
+      this.winkStartTime = time;
+    }
+
+    if (this.isWinking) {
+      const elapsed = time - this.winkStartTime;
+      const duration = this.idleConfig.winkDuration;
+
+      if (elapsed >= duration) {
         this.isWinking = false;
-        this.nextWinkTime = 0;
-        this.winkStartTime = 0;
+        this.idleActivation = 0;
+        this.nextWinkTime =
+          time +
+          this.p.random(
+            this.idleConfig.winkIntervalMin,
+            this.idleConfig.winkIntervalMax,
+          );
+      } else {
+        const progress = elapsed / duration;
+        const sineValue = Math.sin(progress * Math.PI);
+        this.idleActivation = sineValue * this.idleConfig.winkIntensity;
+      }
+    }
+  }
 
-        this.spriteImage = spriteImage;
+  // ── HOLE / FIELD ──────────────────────────────────────────────────────────
 
-        // Use provided position or default to center
-        this.initialX = x;
-        this.initialY = y;
-        this.center = p.createVector(x ?? p.width / 2, y ?? p.height / 2);
+  computeHole(mouseVec) {
+    const dist = this.p.dist(
+      mouseVec.x,
+      mouseVec.y,
+      this.center.x,
+      this.center.y,
+    );
+    this.proximity = this.p.constrain(1 - dist / this.revealRadius, 0, 1);
 
-        this.proximity = 0;
-        this.activation = 0;
-        this.visible = false;
-        this._hole = null;
-        this._extraRepulsion = null;
-        // Cache for label text measurements — invalidated on resize via applyResponsiveConfig.
-        this._labelWidth  = null;
-        this._labelHeight = null;
+    let targetActivation;
+    if (this.interactionLocked) {
+      targetActivation = this.lockedActivationTarget;
+      this.activation = this.p.lerp(
+        this.activation,
+        targetActivation,
+        this.lockedActivationRate,
+      );
+    } else {
+      const normalized = this.p.constrain(
+        (this.proximity - this.revealStart) / (1 - this.revealStart),
+        0,
+        1,
+      );
+      targetActivation = this._easeOutCubic(normalized);
+
+      const delta = this.p.abs(targetActivation - this.activation);
+      const exiting = targetActivation < this.activation;
+      const minRate =
+        exiting && this.activationLerpMinRateExit !== undefined
+          ? this.activationLerpMinRateExit
+          : this.activationLerpMinRate;
+      const maxRate =
+        exiting && this.activationLerpMaxRateExit !== undefined
+          ? this.activationLerpMaxRateExit
+          : this.activationLerpMaxRate;
+      const rate = this.p.constrain(
+        this.p.map(delta, 0, this.activationLerpDeltaWindow, minRate, maxRate),
+        minRate,
+        maxRate,
+      );
+
+      this.activation = this.p.lerp(this.activation, targetActivation, rate);
+    }
+    if (this.p.abs(this.activation - targetActivation) < 1e-4) {
+      this.activation = targetActivation;
     }
 
-    // =========================================================================
-    // RESPONSIVE UPDATES
-    // =========================================================================
+    // hysteresis: smaller radius snaps in, larger snaps out — prevents flicker at boundary
+    const currentSnapRadius = this.isFullyBloomed
+      ? this.snapOutRadius
+      : this.snapInRadius;
 
-    applyResponsiveConfig(config) {
-        Object.assign(this, config);
-        if (this.rotationMaxDegrees !== undefined) {
-            this.rotationMaxRad = this.p.radians(this.rotationMaxDegrees);
-        }
-        // Update position from config if provided (responsive recalculation)
-        if (config.x !== undefined && config.y !== undefined) {
-            this.center.set(config.x, config.y);
-        }
-        this._hole = null;
-        // Font size may have changed — invalidate cached text measurements.
-        this._labelWidth  = null;
-        this._labelHeight = null;
+    // single source of truth: instant activation + label display + vector snap
+    this.isFullyBloomed =
+      !this.interactionLocked && currentSnapRadius && dist < currentSnapRadius;
+
+    if (this.isFullyBloomed) {
+      this.activation = 1.0;
     }
 
-    updateIdle(time, isIdle) {
-        if (!this.idleConfig) return;
+    // when locked, isFullyBloomed is false → targetMagnetism = 0 → decays at magnetismLerpLocked
+    const targetMagnetism = this.isFullyBloomed ? 1.0 : 0.0;
+    const magRate =
+      targetMagnetism > this.magnetism
+        ? this.magnetismLerpEngage
+        : this.interactionLocked
+          ? this.magnetismLerpLocked
+          : this.magnetismLerpHover;
 
-        // If not idle or if the flower is being interacted with, reset everything
-        if (!isIdle || this.activation > 0.01) {
-            this.idleActivation = 0;
-            this.isWinking = false;
-            this.nextWinkTime = time + this.p.random(this.idleConfig.winkIntervalMin, this.idleConfig.winkIntervalMax);
-            return;
-        }
-
-        // Check if it's time to start a wink
-        if (!this.isWinking && time > this.nextWinkTime) {
-            this.isWinking = true;
-            this.winkStartTime = time;
-        }
-
-        if (this.isWinking) {
-            const elapsed = time - this.winkStartTime;
-            const duration = this.idleConfig.winkDuration;
-
-            if (elapsed >= duration) {
-                // Wink finished
-                this.isWinking = false;
-                this.idleActivation = 0;
-                this.nextWinkTime = time + this.p.random(this.idleConfig.winkIntervalMin, this.idleConfig.winkIntervalMax);
-            } else {
-                // Calculate wink activation (sine wave)
-                const progress = elapsed / duration;
-                // Sine wave from 0 to PI (0 -> 1 -> 0)
-                const sineValue = Math.sin(progress * Math.PI);
-                this.idleActivation = sineValue * this.idleConfig.winkIntensity;
-            }
-        }
+    this.magnetism = this.p.lerp(this.magnetism, targetMagnetism, magRate);
+    if (this.p.abs(this.magnetism - targetMagnetism) < 1e-3) {
+      this.magnetism = targetMagnetism;
     }
 
-    // =========================================================================
-    // LOGIC & CALCULATION
-    // =========================================================================
-
-    /**
-     * Updates proximity, activation, and visibility based on cursor position.
-     * Side-effects:
-     *   - this.proximity, this.activation (physics state)
-     *   - this.visible (render gate)
-     *   - this._hole (consumed by VectorField via getExtraRepulsion pipeline)
-     *
-     * Note: label state (labelActivation, _extraRepulsion) is updated separately
-     * by calling updateLabel(field) from sketch.js before each updateAndDraw call.
-     *
-     * Returns the hole descriptor, or null if not visible.
-     */
-    computeHole(mouseVec) {
-        const dist = this.p.dist(mouseVec.x, mouseVec.y, this.center.x, this.center.y);
-        this.proximity = this.p.constrain(1 - dist / this.revealRadius, 0, 1);
-
-        const normalized = this.p.constrain(
-            (this.proximity - this.revealStart) / (1 - this.revealStart),
-            0,
-            1
-        );
-        const targetActivation = this._easeOutCubic(normalized);
-
-        const delta = this.p.abs(targetActivation - this.activation);
-        const exiting = targetActivation < this.activation;
-        const minRate = exiting && this.activationLerpMinRateExit !== undefined
-            ? this.activationLerpMinRateExit
-            : this.activationLerpMinRate;
-        const maxRate = exiting && this.activationLerpMaxRateExit !== undefined
-            ? this.activationLerpMaxRateExit
-            : this.activationLerpMaxRate;
-        const rate = this.p.constrain(
-            this.p.map(delta, 0, this.activationLerpDeltaWindow, minRate, maxRate),
-            minRate,
-            maxRate
-        );
-
-        this.activation = this.p.lerp(this.activation, targetActivation, rate);
-        if (this.p.abs(this.activation - targetActivation) < 1e-4) {
-            this.activation = targetActivation;
-        }
-
-        // Snap to full bloom if the cursor is very close.
-        // snapLerpRate comes from CONFIG.flower.snapLerpRate (default 0.3).
-        if (this.snapRadius && dist < this.snapRadius) {
-            this.activation = this.p.lerp(this.activation, 1.0, this.snapLerpRate);
-        }
-
-        // Calculate idle hole activation
-        const idleHoleActivation = this.idleActivation * (this.idleConfig?.holeIntensity ?? 0.3);
-
-        // Use the stronger of the two activations for physics, but keep track of source
-        let effectiveActivation = this.activation;
-        let useIdleCenter = false;
-
-        if (idleHoleActivation > this.activation) {
-            effectiveActivation = idleHoleActivation;
-            useIdleCenter = true;
-        }
-
-        const visibilityThreshold = this.activationVisibilityThreshold ?? 1e-4;
-        this.visible = effectiveActivation > visibilityThreshold;
-
-        if (!this.visible) {
-            this._hole = null;
-            // Ensure label is also deactivated immediately
-            this.labelActivation = 0;
-            this.labelVisible = false;
-            this._extraRepulsion = null;
-            return null;
-        }
-
-        const targetRadius = this.radius + this.holePadding;
-        // Use this.initialHoleRadius as the starting point
-        const radius = this.p.lerp(this.initialHoleRadius, targetRadius, effectiveActivation);
-
-        // If using idle activation, center the hole on the flower.
-        // If using mouse activation, interpolate between mouse and flower center.
-        const center = useIdleCenter
-            ? this.center.copy()
-            : mouseVec.copy().lerp(this.center, effectiveActivation);
-
-        const clearRadius = this.clearRadius * effectiveActivation;
-        const clearFeather = this.clearFeather;
-
-        let snapCenter = null;
-        if (this.arrowSnapRadius && dist < this.arrowSnapRadius) {
-            snapCenter = this.center;
-        }
-
-        this._hole = { center, radius, clearRadius, clearFeather, activation: effectiveActivation, snapCenter };
-        return this._hole;
+    // when locked: collapses at lockedFieldActivationRate so the circular repulsor fades out
+    // as the preview rect repulsor ramps up — the two overlap briefly, no velocity snap
+    if (this.interactionLocked) {
+      this.fieldActivation = this.p.lerp(
+        this.fieldActivation,
+        0,
+        this.lockedFieldActivationRate,
+      );
+      if (this.fieldActivation < 1e-3) this.fieldActivation = 0;
+    } else {
+      this.fieldActivation = this.activation;
     }
 
-    updateLabel(field) {
-        if (!this.label || !this.labelConfig) return;
-
-        // Label appears when flower is significantly activated (bloomed) or hovered
-        // We use a threshold on the main activation to trigger the label
-        const targetLabelActivation = this.activation > 0.8 ? 1 : 0;
-
-        const rate = targetLabelActivation > this.labelActivation
-            ? this.labelConfig.activationRate
-            : this.labelConfig.deactivationRate;
-
-        this.labelActivation = this.p.lerp(this.labelActivation, targetLabelActivation, rate);
-
-        if (this.p.abs(this.labelActivation - targetLabelActivation) < 1e-3) {
-            this.labelActivation = targetLabelActivation;
-        }
-
-        this.labelVisible = this.labelActivation > 0.01;
-        this._extraRepulsion = null;
-
-        if (this.labelVisible) {
-            // Measure text only once — cache is reset by applyResponsiveConfig on resize.
-            if (this._labelWidth === null) {
-                this.p.push();
-                this.p.textSize(this.labelConfig.fontSize);
-                this.p.textFont(this.labelConfig.fontFamily);
-                this._labelWidth  = this.p.textWidth(this.label);
-                this._labelHeight = this.labelConfig.fontSize;
-                this.p.pop();
-            }
-            const w = this._labelWidth;
-            const h = this._labelHeight;
-
-            const clearPadding = this.labelConfig.clearPadding * this.labelActivation;
-            const featherPadding = this.labelConfig.featherPadding;
-
-            // The label is currently always positioned at the screen center (snapped to grid).
-            // This is intentional: the label acts as a global caption for the whole canvas,
-            // not as a tooltip near the individual flower.
-            const snapped = field.getNearestGridCenter(this.p.width / 2, this.p.height / 2);
-            const labelCenter = this.p.createVector(snapped.x, snapped.y);
-
-            // Store for drawing
-            this.currentLabelCenter = labelCenter;
-
-            this._extraRepulsion = {
-                type: 'rect',
-                center: labelCenter,
-                width: w,
-                height: h,
-                clearPadding: clearPadding,
-                featherPadding: featherPadding,
-                strength: this.labelActivation
-            };
-        }
+    // tap-cancel: re-enables proximity once both sprite and field have finished closing
+    if (
+      this._tapCancelled &&
+      this.activation < 0.02 &&
+      this.fieldActivation < 0.02
+    ) {
+      this.interactionLocked = false;
+      this._tapCancelled = false;
     }
 
-    getExtraRepulsion() {
-        return this._extraRepulsion;
+    const idleHoleActivation =
+      this.idleActivation *
+      (this.idleConfig ? this.idleConfig.holeIntensity : 0);
+
+    let spriteActivation = this.activation;
+    let useIdleCenter = false;
+    if (idleHoleActivation > spriteActivation) {
+      spriteActivation = idleHoleActivation;
+      useIdleCenter = true;
     }
 
-    _easeOutCubic(t) {
-        const clamped = this.p.constrain(t, 0, 1);
-        return 1 - this.p.pow(1 - clamped, 3);
+    this.visible = spriteActivation > this.activationVisibilityThreshold;
+
+    if (!this.visible) {
+      this._hole = null;
+      this.labelActivation = 0;
+      this.labelVisible = false;
+      this._extraRepulsion = null;
+      return null;
     }
 
-    // =========================================================================
-    // RENDERING
-    // =========================================================================
+    const fieldEffectiveActivation = Math.max(
+      this.fieldActivation,
+      idleHoleActivation,
+    );
 
-    draw() {
-        // this.visible is driven by computeHole() (physics + idle hole activation).
-        // isIdleVisible is an additional check for the visual-only wink (no physics hole).
-        const isIdleVisible = this.idleActivation > (this.activationVisibilityThreshold ?? 1e-4);
-        if ((!this.visible && !isIdleVisible) || !this.spriteImage) {
-            return;
-        }
+    // field has collapsed: sprite finishes its cinematic close while arrows have already settled
+    if (fieldEffectiveActivation <= this.activationVisibilityThreshold) {
+      this._hole = null;
+      return null;
+    }
 
+    const targetRadius = this.radius + this.holePadding;
+    // floor collapses to 0 before visibility culling — eliminates pop on cull
+    const radiusFloor =
+      this.initialHoleRadius *
+      this.p.constrain(
+        fieldEffectiveActivation / (this.activationVisibilityThreshold * 2),
+        0,
+        1,
+      );
+    const radius = this.p.lerp(
+      radiusFloor,
+      targetRadius,
+      fieldEffectiveActivation,
+    );
+
+    // idle: hole centered on flower; hover: interpolates mouse → flower center
+    const center = useIdleCenter
+      ? this.center.copy()
+      : mouseVec.copy().lerp(this.center, fieldEffectiveActivation);
+
+    const clearRadius = this.clearRadius * fieldEffectiveActivation;
+    const clearFeather = this.clearFeather;
+
+    let snapCenter = null;
+    if (this.magnetism > 0) {
+      snapCenter = this.center;
+    }
+
+    // explicit type avoids ambiguity with rect repulsors from label / preview
+    this._hole = {
+      type: "circle",
+      center,
+      radius,
+      clearRadius,
+      clearFeather,
+      activation: fieldEffectiveActivation,
+      snapCenter,
+      magnetism: this.magnetism,
+    };
+    return this._hole;
+  }
+
+  // ── LABEL ─────────────────────────────────────────────────────────────────
+
+  updateLabel(field) {
+    if (!this.label || !this.labelConfig) return;
+
+    const targetLabelActivation = this.isFullyBloomed ? 1 : 0;
+
+    const rate =
+      targetLabelActivation > this.labelActivation
+        ? this.labelConfig.activationRate
+        : this.labelConfig.deactivationRate;
+
+    this.labelActivation = this.p.lerp(
+      this.labelActivation,
+      targetLabelActivation,
+      rate,
+    );
+
+    if (this.p.abs(this.labelActivation - targetLabelActivation) < 1e-3) {
+      this.labelActivation = targetLabelActivation;
+    }
+
+    this.labelVisible = this.labelActivation > 0.01;
+    this._extraRepulsion = null;
+
+    if (this.labelVisible) {
+      // measured once per font size; cache reset on resize via applyResponsiveConfig
+      if (this._labelWidth === null) {
         this.p.push();
-        this.p.translate(this.center.x, this.center.y);
-        const rotation = this.rotationMaxRad
-            ? this.rotationMaxRad * (this.p.pow(this.activation, this.rotationExponent) - 1)
-            : 0;
-        this.p.rotate(rotation);
-        this.p.imageMode(this.p.CENTER);
-
-        // Use the maximum of user activation and idle activation for visual effects
-        const effectiveActivation = Math.max(this.activation, this.idleActivation);
-
-        const glow = this.glowBase + this.glowGain * effectiveActivation;
-        const scale = this.bodyScaleBase + this.bodyScaleGain * effectiveActivation;
-        const size = this.radius * 2 * scale;
-
-        const fadeIn = this.p.pow(this.p.constrain(effectiveActivation, 0, 1), this.fadeInExponent);
-        const alpha = 255 * glow * fadeIn;
-
-        // Frame calculation logic
-        const frameProgress = effectiveActivation <= this.frameHoldActivation
-            ? 0
-            : this.p.constrain(
-                (effectiveActivation - this.frameHoldActivation) / (1 - this.frameHoldActivation),
-                0,
-                1
-            );
-
-        const shapedProgress = this.p.pow(frameProgress, this.frameProgressExponent ?? 1);
-
-        // Map 0-1 to 0-(frameCount-1)
-        let frameIndex = Math.floor(shapedProgress * (this.frameCount - 1));
-        frameIndex = this.p.constrain(frameIndex, 0, this.frameCount - 1);
-
-        // Calculate source rectangle from sprite sheet
-        const frameWidth  = this.spriteImage.width  / this.gridCols;
-        const frameHeight = this.spriteImage.height / this.gridRows;
-
-        const col = frameIndex % this.gridCols;
-        const row = Math.floor(frameIndex / this.gridCols);
-
-        const sx = col * frameWidth;
-        const sy = row * frameHeight;
-
-        this.p.tint(255, alpha);
-        // Draw the frame from the sprite sheet
-        this.p.image(
-            this.spriteImage,
-            0, 0,
-            size, size,
-            sx, sy,
-            frameWidth, frameHeight
-        );
-        this.p.noTint();
-
-        this.p.pop();
-    }
-    drawLabel() {
-        if (!this.labelVisible || !this.label || !this.labelConfig) return;
-
-        this.p.push();
-        this.p.textAlign(this.p.CENTER, this.p.CENTER);
         this.p.textSize(this.labelConfig.fontSize);
         this.p.textFont(this.labelConfig.fontFamily);
-
-        // Apply font weight if specified
-        if (this.labelConfig.fontWeight) {
-            this.p.textStyle(this.p.NORMAL); // Reset style first
-            this.p.drawingContext.font = `${this.labelConfig.fontWeight} ${this.labelConfig.fontSize}px "${this.labelConfig.fontFamily}"`;
-        }
-
-        // Fade in/out based on activation
-        const alpha = 255 * this.labelActivation;
-        this.p.fill(this.labelConfig.color, alpha);
-        this.p.noStroke();
-
-        // Draw relative to SCREEN center (or snapped center if available)
-        const pos = this.currentLabelCenter || this.p.createVector(this.p.width / 2, this.p.height / 2);
-        this.p.text(this.label, pos.x, pos.y);
+        this._labelWidth = this.p.textWidth(this.label);
+        this._labelHeight = this.labelConfig.fontSize;
         this.p.pop();
+      }
+      const w = this._labelWidth;
+      const h = this._labelHeight;
+
+      // always at screen center — global canvas caption, not a tooltip near the flower
+      const snapped = field.getNearestGridCenter(
+        this.p.width / 2,
+        this.p.height / 2,
+      );
+      const labelCenter = this.p.createVector(snapped.x, snapped.y);
+
+      this.currentLabelCenter = labelCenter;
+
+      // curve strength rather than geometry so the bbox stays stable during fade
+      const exp = this.labelConfig.fadeInExponent;
+      const strength = this.p.pow(
+        this.p.constrain(this.labelActivation, 0, 1),
+        exp,
+      );
+
+      this._extraRepulsion = {
+        type: "rect",
+        center: labelCenter,
+        width: w,
+        height: h,
+        clearPadding: this.labelConfig.clearPadding,
+        featherPadding: this.labelConfig.featherPadding,
+        cornerRadius: this.labelConfig.cornerRadius ?? 0,
+        strength,
+      };
     }
+  }
+
+  getExtraRepulsion() {
+    return this._extraRepulsion;
+  }
+
+  _easeOutCubic(t) {
+    const clamped = this.p.constrain(t, 0, 1);
+    return 1 - this.p.pow(1 - clamped, 3);
+  }
+
+  // ── DRAW ──────────────────────────────────────────────────────────────────
+
+  draw() {
+    // always advance — recovery animation must complete even while flower is fading
+    const pressTarget = this.pressed ? 1 : 0;
+    this.pressAmount = this.p.lerp(
+      this.pressAmount,
+      pressTarget,
+      this.pressLerpRate,
+    );
+    if (this.p.abs(this.pressAmount - pressTarget) < 1e-3)
+      this.pressAmount = pressTarget;
+
+    // spring: rise → hold → fall; fall overlaps the lock close animation
+    const sr = this.springRelease;
+    if (this._springActive && sr?.enabled) {
+      const rate = sr.riseRate;
+      if (!this._springPeaked) {
+        this.springAmount = this.p.lerp(this.springAmount, 1, rate);
+        if (this.springAmount >= 0.85) {
+          this._springPeaked = true;
+          this._springPeakFrames = 0;
+        }
+      } else if (this._springPeakFrames < sr.peakHoldFrames) {
+        this._springPeakFrames++;
+        this.springAmount = this.p.lerp(this.springAmount, 1, rate);
+      } else {
+        this.springAmount = this.p.lerp(this.springAmount, 0, rate);
+        if (this.springAmount < 0.02) {
+          this.springAmount = 0;
+          this._springActive = false;
+        }
+      }
+    }
+
+    // idle wink is visual-only (no physics hole) — needs its own visibility check
+    const isIdleVisible =
+      this.idleActivation > this.activationVisibilityThreshold;
+    if ((!this.visible && !isIdleVisible) || !this.spriteImage) {
+      return;
+    }
+
+    // smooth only on final snap to prevent pop when activation jumps to 1
+    if (this.isFullyBloomed && !this.interactionLocked) {
+      this.animActivation = this.p.lerp(
+        this.animActivation,
+        this.activation,
+        this.snapLerpRate,
+      );
+      if (this.p.abs(this.animActivation - this.activation) < 1e-3)
+        this.animActivation = this.activation;
+    } else {
+      this.animActivation = this.activation;
+    }
+
+    this.p.push();
+    this.p.translate(this.center.x, this.center.y);
+    const rotation = this.rotationMaxRad
+      ? this.rotationMaxRad *
+        (this.p.pow(this.animActivation, this.rotationExponent) - 1)
+      : 0;
+    this.p.rotate(rotation);
+    this.p.imageMode(this.p.CENTER);
+
+    const effectiveActivation = Math.max(
+      this.animActivation,
+      this.idleActivation,
+    );
+
+    const glow = this.glowBase + this.glowGain * effectiveActivation;
+
+    const pressScale = 1 - this.pressScaleGain * this.pressAmount;
+    const springMult =
+      this._springActive && sr?.enabled
+        ? 1 + sr.scaleGain * this.springAmount
+        : 1;
+    const scale =
+      (this.bodyScaleBase + this.bodyScaleGain * effectiveActivation) *
+      pressScale *
+      springMult;
+    const size = this.radius * 2 * scale;
+
+    const fadeIn = this.p.pow(
+      this.p.constrain(effectiveActivation, 0, 1),
+      this.fadeInExponent,
+    );
+    const alpha = 255 * glow * fadeIn;
+
+    // during spring, push frame selection toward the last (fully-bloomed) frame
+    const frameActivation =
+      this._springActive && sr?.enabled
+        ? Math.max(effectiveActivation, this.springAmount)
+        : effectiveActivation;
+
+    const frameProgress =
+      frameActivation <= this.frameHoldActivation
+        ? 0
+        : this.p.constrain(
+            (frameActivation - this.frameHoldActivation) /
+              (1 - this.frameHoldActivation),
+            0,
+            1,
+          );
+
+    const shapedProgress = this.p.pow(
+      frameProgress,
+      this.frameProgressExponent ?? 1,
+    );
+
+    let frameIndex = Math.floor(shapedProgress * (this.frameCount - 1));
+    frameIndex = this.p.constrain(frameIndex, 0, this.frameCount - 1);
+
+    const frameWidth = this.spriteImage.width / this.gridCols;
+    const frameHeight = this.spriteImage.height / this.gridRows;
+
+    const col = frameIndex % this.gridCols;
+    const row = Math.floor(frameIndex / this.gridCols);
+
+    const sx = col * frameWidth;
+    const sy = row * frameHeight;
+
+    this.p.tint(255, alpha);
+    this.p.image(
+      this.spriteImage,
+      0,
+      0,
+      size,
+      size,
+      sx,
+      sy,
+      frameWidth,
+      frameHeight,
+    );
+    this.p.noTint();
+
+    this.p.pop();
+  }
+
+  drawLabel() {
+    if (!this.labelVisible || !this.label || !this.labelConfig) return;
+
+    const {
+      fontSize,
+      fontFamily,
+      fontWeight = 400,
+      color = 20,
+    } = this.labelConfig;
+    const pos =
+      this.currentLabelCenter ||
+      this.p.createVector(this.p.width / 2, this.p.height / 2);
+
+    this.p.push();
+    this.p.textAlign(this.p.CENTER, this.p.CENTER);
+    this.p.noStroke();
+    drawStyledText(this.p, this.label, pos.x, pos.y, {
+      weight: fontWeight,
+      size: fontSize,
+      family: fontFamily,
+      fill: color,
+      alpha: 255 * this.labelActivation,
+    });
+    this.p.pop();
+  }
+
+  // ── PUBLIC API ────────────────────────────────────────────────────────────
+
+  hasPreview() {
+    return this.preview != null;
+  }
+
+  hasSpringEnabled() {
+    return !!this.springRelease?.enabled;
+  }
+
+  isLocked() {
+    return this.interactionLocked;
+  }
+
+  isTappable() {
+    return this.isFullyBloomed;
+  }
+
+  setPressed(pressed) {
+    this.pressed = !!pressed;
+  }
+
+  setLocked(locked) {
+    this.interactionLocked = locked;
+    this.lockedActivationTarget = 0;
+    // clears _tapCancelled so external lock takes ownership (e.g. preview opens mid-close)
+    this._tapCancelled = false;
+  }
+
+  // pointer released outside: lock for close animation, then self-unlock via computeHole
+  cancelTap() {
+    this.interactionLocked = true;
+    this.lockedActivationTarget = 0;
+    this._tapCancelled = true;
+  }
+
+  startSpringRelease() {
+    this.springAmount = 0;
+    this._springActive = true;
+    this._springPeaked = false;
+    this._springPeakFrames = 0;
+  }
+
+  // hold phase complete — PreviewManager fires _openPreview() here so fall and close overlap
+  isSpringPeakDone() {
+    return (
+      this._springPeaked &&
+      this._springPeakFrames >= this.springRelease.peakHoldFrames
+    );
+  }
+
+  // activation near 0: sprite has finished its reverse-bloom close
+  isFullyClosed() {
+    return this.interactionLocked && this.activation < 0.02;
+  }
 }

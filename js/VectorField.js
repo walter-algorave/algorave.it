@@ -1,511 +1,606 @@
 export class VectorField {
-    // =========================================================================
-    // CONSTRUCTOR
-    // =========================================================================
-    constructor(p, {
-        spacing = 50,
-        arrowLen = 16,
-        cursorClearRadius = 0,
-        cursorClearFeather = 0,
-        stiffness = 0.08,
-        damping = 0.88,
-        maxSpeed = 12,
-        mouseLerp = 0.25,
-        falloffMultiplier = 1.85,
-        outerStrength = 0.15,
-        innerExtraStrength = 0.08,
-        innerEase = 2.8,
-        outerFalloffExponent = 1.35,
-        directionEpsilon = 1e-4,
-        pushEpsilon = 1e-3,
-        angleEpsilon = 1e-6,
-        arrowShape = {},
-        pointerPresence = {}
-    } = {}) {
-        this.p = p;
-        this.spacing = spacing;
-        this.arrowLen = arrowLen;
-        this.cursorClearRadius = cursorClearRadius;
-        this.cursorClearFeather = cursorClearFeather;
+  // ── CONSTRUCTOR ───────────────────────────────────────────────────────────
+  // All numeric values must come pre-built from buildResponsiveFieldConfig() /
+  // CONFIG.field — no fallback defaults; a missing key surfaces NaN immediately
+  // (config = single source of truth, same contract as BloomingFlower).
+  constructor(
+    p,
+    {
+      spacing,
+      arrowLen,
+      strokeColor,
+      cursorClearRadius,
+      cursorClearFeather,
+      stiffness,
+      damping,
+      maxSpeed,
+      mouseLerp,
+      falloffMultiplier,
+      outerStrength,
+      innerExtraStrength,
+      innerEase,
+      outerFalloffExponent,
+      directionEpsilon,
+      pushEpsilon,
+      angleEpsilon,
+      arrowShape,
+      pointerPresence,
+      arrowCulling,
+      featherPushStrength,
+    } = {},
+  ) {
+    this.p = p;
+    this.spacing = spacing;
+    this.arrowLen = arrowLen;
+    this.strokeColor = strokeColor;
+    this.cursorClearRadius = cursorClearRadius;
+    this.cursorClearFeather = cursorClearFeather;
 
-        this.stiffness = stiffness;
-        this.damping = damping;
-        this.maxSpeed = maxSpeed;
+    this.stiffness = stiffness;
+    this.damping = damping;
+    this.maxSpeed = maxSpeed;
 
-        this.mouseLerp = p.constrain(mouseLerp, 0, 1);
-        this.falloffMultiplier = falloffMultiplier;
-        this.outerStrength = outerStrength;
-        this.innerExtraStrength = innerExtraStrength;
-        this.innerEase = innerEase;
-        this.outerFalloffExponent = outerFalloffExponent;
-        this.directionEpsilon = directionEpsilon;
-        this.pushEpsilon = pushEpsilon;
-        this.angleEpsilon = angleEpsilon;
+    this.mouseLerp = p.constrain(mouseLerp, 0, 1);
+    this.falloffMultiplier = falloffMultiplier;
+    this.outerStrength = outerStrength;
+    this.innerExtraStrength = innerExtraStrength;
+    this.innerEase = innerEase;
+    this.outerFalloffExponent = outerFalloffExponent;
+    this.directionEpsilon = directionEpsilon;
+    this.pushEpsilon = pushEpsilon;
+    this.angleEpsilon = angleEpsilon;
 
-        const {
-            shaftRatio = 0.4,
-            tipLengthRatio = 0.55,
-            tipWidthRatio = 0.35
-        } = arrowShape;
-        this.arrowShape = { shaftRatio, tipLengthRatio, tipWidthRatio };
+    this.arrowShape = { ...arrowShape };
+    this.arrowCulling = { ...arrowCulling };
+    this.featherPushStrength = featherPushStrength;
+    this.pointerPresenceConfig = {
+      enterRate: p.constrain(pointerPresence.enterRate, 0, 1),
+      exitRate: p.constrain(pointerPresence.exitRate, 0, 1),
+    };
+    this.pointerPresenceValue = 0;
+    this.pointerInCanvas = false;
 
-        const {
-            enterRate = 0.35,
-            exitRate = 0.08
-        } = pointerPresence;
-        this.pointerPresenceConfig = {
-            enterRate: p.constrain(enterRate, 0, 1),
-            exitRate: p.constrain(exitRate, 0, 1)
+    this.smoothedMouse = p.createVector(0, 0);
+
+    // Normally tracks smoothedMouse, but switches to a flower's center while that
+    // flower is fully bloomed (BloomingFlower.isFullyBloomed owns the hysteresis).
+    // Arrows then orient toward the flower rather than the raw cursor, reinforcing
+    // the "pulled inward" feel. Lerps at the same rate as the mouse.
+    this.smoothedRotationTarget = p.createVector(0, 0);
+    this._rotationInit = false;
+    this._mouseInit = false;
+
+    // reusable temp vectors — avoid per-frame allocations in the hot loop
+    this._tmpDiff = p.createVector(0, 0);
+    this._tmpDir = p.createVector(0, 0);
+    this._tmpTarget = p.createVector(0, 0);
+    this._tmpToTarget = p.createVector(0, 0);
+    this._tmpDirToMouse = p.createVector(0, 0);
+
+    this.base = [];
+    this.pos = [];
+    this.vel = [];
+    this.rebuild();
+  }
+
+  // ── GRID ──────────────────────────────────────────────────────────────────
+
+  rebuild() {
+    this.base.length = 0;
+    this.pos.length = 0;
+    this.vel.length = 0;
+
+    const paddingX = Math.min(this.arrowLen, this.p.width / 2);
+    const paddingY = Math.min(this.arrowLen, this.p.height / 2);
+    const availableWidth = Math.max(this.p.width - paddingX * 2, 0);
+    const availableHeight = Math.max(this.p.height - paddingY * 2, 0);
+
+    const cols = Math.floor(availableWidth / this.spacing) + 1;
+    const rows = Math.floor(availableHeight / this.spacing) + 1;
+    const totalWidth = (cols - 1) * this.spacing;
+    const totalHeight = (rows - 1) * this.spacing;
+    const x0 = (this.p.width - totalWidth) / 2;
+    const y0 = (this.p.height - totalHeight) / 2;
+
+    this.gridX0 = x0;
+    this.gridY0 = y0;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const px = x0 + c * this.spacing;
+        const py = y0 + r * this.spacing;
+        const pVec = this.p.createVector(px, py);
+        this.base.push(pVec);
+        this.pos.push(pVec.copy());
+        this.vel.push(this.p.createVector(0, 0));
+      }
+    }
+  }
+
+  // Snaps an arbitrary point to the center of the grid cell that contains it.
+  // Cell centers sit halfway between vertices: the -0.5 shift before rounding
+  // picks the cell index, +0.5 recovers its center. Used to align flowers and
+  // labels to a stable sub-grid position.
+  getNearestGridCenter(x, y) {
+    const col = Math.round((x - this.gridX0) / this.spacing - 0.5);
+    const row = Math.round((y - this.gridY0) / this.spacing - 0.5);
+
+    const centerX = this.gridX0 + (col + 0.5) * this.spacing;
+    const centerY = this.gridY0 + (row + 0.5) * this.spacing;
+
+    return { x: centerX, y: centerY };
+  }
+
+  applyResponsiveConfig(config) {
+    this.spacing = config.spacing;
+    this.arrowLen = config.arrowLen;
+    this.strokeColor = config.strokeColor ?? this.strokeColor;
+    this.cursorClearRadius = config.cursorClearRadius ?? this.cursorClearRadius;
+    this.cursorClearFeather =
+      config.cursorClearFeather ?? this.cursorClearFeather;
+    this.falloffMultiplier = config.falloffMultiplier;
+    if (config.arrowCulling) {
+      this.arrowCulling = { ...this.arrowCulling, ...config.arrowCulling };
+    }
+    if (config.pointerPresence) {
+      this.pointerPresenceConfig = {
+        ...this.pointerPresenceConfig,
+        ...config.pointerPresence,
+      };
+      this.pointerPresenceConfig.enterRate = this.p.constrain(
+        this.pointerPresenceConfig.enterRate,
+        0,
+        1,
+      );
+      this.pointerPresenceConfig.exitRate = this.p.constrain(
+        this.pointerPresenceConfig.exitRate,
+        0,
+        1,
+      );
+    }
+    if (config.featherPushStrength !== undefined) {
+      this.featherPushStrength = config.featherPushStrength;
+    }
+    this.rebuild();
+  }
+
+  // ── PHYSICS & UPDATE ──────────────────────────────────────────────────────
+
+  updateAndDraw(mx, my, revealTargets = []) {
+    const curMouse = this.p.createVector(mx, my);
+    if (!this._mouseInit) {
+      this.smoothedMouse.set(curMouse);
+      this._mouseInit = true;
+    } else {
+      this.smoothedMouse.lerp(curMouse, this.mouseLerp);
+    }
+    const m = this.smoothedMouse;
+    const pointerPresence = this._updatePointerPresence();
+
+    const targets = Array.isArray(revealTargets)
+      ? revealTargets
+      : revealTargets
+        ? [revealTargets]
+        : [];
+
+    const activeHoles = [];
+    for (const target of targets) {
+      const data = target.computeHole(m.copy());
+      if (data) {
+        activeHoles.push(data);
+      }
+      if (typeof target.getExtraRepulsion === "function") {
+        const extraRepulsor = target.getExtraRepulsion();
+        if (extraRepulsor) {
+          // providers may emit one repulsor or several (e.g. FlowerPreview emits
+          // one per content block) — flatten so the physics loop stays uniform
+          if (Array.isArray(extraRepulsor)) {
+            for (const r of extraRepulsor) if (r) activeHoles.push(r);
+          } else {
+            activeHoles.push(extraRepulsor);
+          }
+        }
+      }
+    }
+
+    const repulsors = activeHoles.map((h) => {
+      if (h.type === "rect") {
+        const halfWidth = h.width / 2;
+        const halfHeight = h.height / 2;
+        return {
+          type: "rect",
+          center: h.center,
+          halfWidth,
+          halfHeight,
+          clearPadding: h.clearPadding,
+          featherPadding: h.featherPadding,
+          cornerRadius: h.cornerRadius || 0,
+          strength: h.strength || 1,
         };
-        this.pointerPresenceValue = 0;
-        this.pointerInCanvas = false;
+      } else {
+        const holeCenter = h.center;
+        const baseHoleRadius = h.radius;
+        const holeRadius = baseHoleRadius * pointerPresence;
+        const falloffRange = holeRadius * this.falloffMultiplier;
+        const outerRadius = holeRadius + falloffRange;
+        const boundaryPush = falloffRange * this.outerStrength;
 
-        this.smoothedMouse = p.createVector(0, 0);
-        // smoothedRotationTarget is normally equal to smoothedMouse, but switches to a
-        // flower's center when the cursor enters that flower's arrowSnapRadius. This makes
-        // nearby arrows point toward the flower rather than the raw cursor, reinforcing the
-        // "pulled inward" feel. Uses the same lerp rate as mouse smoothing.
-        this.smoothedRotationTarget = p.createVector(0, 0);
-        this._rotationInit = false;
-        this._mouseInit = false;
+        const holeClearRadius = h.clearRadius;
+        const holeClearFeather = h.clearFeather;
 
-        // Reusable temporary vectors
-        this._tmpDiff = p.createVector(0, 0);
-        this._tmpDir = p.createVector(0, 0);
-        this._tmpTarget = p.createVector(0, 0);
-        this._tmpToTarget = p.createVector(0, 0);
-        this._tmpDirToMouse = p.createVector(0, 0);
+        return {
+          type: "circle",
+          center: holeCenter,
+          holeRadius,
+          falloffRange,
+          outerRadius,
+          boundaryPush,
+          holeClearRadius,
+          holeClearFeather,
+          activation: h.activation,
+        };
+      }
+    });
 
-        this.base = [];
-        this.pos = [];
-        this.vel = [];
-        this.rebuild();
+    let maxActivation = 0;
+    for (const r of repulsors) {
+      if (r.type === "circle" && r.activation > maxActivation) {
+        maxActivation = r.activation;
+      }
     }
 
-    // =========================================================================
-    // GRID GENERATION
-    // =========================================================================
+    // Cursor repulsion blends out smoothly as any visible flower reaches full
+    // bloom (its hole activation → 1). Applies to main flowers and preview-scoped
+    // action flowers alike — same code path keeps the hover feel consistent
+    // across both, and the cursor returns naturally as activations decay.
+    const blendingFactor = 1 - maxActivation;
+    const cursorClearRadius =
+      this.cursorClearRadius * pointerPresence * blendingFactor;
+    const cursorClearFeather =
+      this.cursorClearFeather * pointerPresence * blendingFactor;
 
-    rebuild() {
-        this.base.length = 0;
-        this.pos.length = 0;
-        this.vel.length = 0;
-
-        const paddingX = Math.min(this.arrowLen, this.p.width / 2);
-        const paddingY = Math.min(this.arrowLen, this.p.height / 2);
-        const availableWidth = Math.max(this.p.width - paddingX * 2, 0);
-        const availableHeight = Math.max(this.p.height - paddingY * 2, 0);
-
-        const cols = Math.floor(availableWidth / this.spacing) + 1;
-        const rows = Math.floor(availableHeight / this.spacing) + 1;
-        const totalWidth = (cols - 1) * this.spacing;
-        const totalHeight = (rows - 1) * this.spacing;
-        const x0 = (this.p.width - totalWidth) / 2;
-        const y0 = (this.p.height - totalHeight) / 2;
-
-        this.gridX0 = x0;
-        this.gridY0 = y0;
-
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                const px = x0 + c * this.spacing;
-                const py = y0 + r * this.spacing;
-                const pVec = this.p.createVector(px, py);
-                this.base.push(pVec);
-                this.pos.push(pVec.copy());
-                this.vel.push(this.p.createVector(0, 0));
-            }
-        }
+    let maxMagnetism = 0;
+    let activeSnapCenter = null;
+    for (const h of activeHoles) {
+      if (h.snapCenter && (h.magnetism || 0) > maxMagnetism) {
+        maxMagnetism = h.magnetism;
+        activeSnapCenter = h.snapCenter;
+      }
     }
 
-    /**
-     * Returns the center of the grid cell that contains point (x, y).
-     * Cell centers sit halfway between grid vertices: the -0.5 shift before
-     * rounding finds the cell index, then +0.5 recovers its center.
-     * Used to snap flowers and labels to a consistent sub-grid position.
-     */
-    getNearestGridCenter(x, y) {
-        const col = Math.round((x - this.gridX0) / this.spacing - 0.5);
-        const row = Math.round((y - this.gridY0) / this.spacing - 0.5);
-
-        const centerX = this.gridX0 + (col + 0.5) * this.spacing;
-        const centerY = this.gridY0 + (row + 0.5) * this.spacing;
-
-        return { x: centerX, y: centerY };
+    // magnetism=1 → arrows point exactly at the flower; as magnetism lerps back
+    // to 0 the target returns smoothly to the cursor
+    let rotationTarget = m;
+    if (activeSnapCenter && maxMagnetism > 0) {
+      rotationTarget = p5.Vector.lerp(m, activeSnapCenter, maxMagnetism);
     }
 
-    applyResponsiveConfig(config) {
-        this.spacing = config.spacing;
-        this.arrowLen = config.arrowLen;
-        this.cursorClearRadius = config.cursorClearRadius ?? this.cursorClearRadius;
-        this.cursorClearFeather = config.cursorClearFeather ?? this.cursorClearFeather;
-        this.falloffMultiplier = config.falloffMultiplier;
-        if (config.pointerPresence) {
-            this.pointerPresenceConfig = {
-                ...this.pointerPresenceConfig,
-                ...config.pointerPresence
-            };
-            this.pointerPresenceConfig.enterRate = this.p.constrain(this.pointerPresenceConfig.enterRate, 0, 1);
-            this.pointerPresenceConfig.exitRate = this.p.constrain(this.pointerPresenceConfig.exitRate, 0, 1);
-        }
-        this.rebuild();
+    if (!this._rotationInit) {
+      this.smoothedRotationTarget.set(rotationTarget);
+      this._rotationInit = true;
+    } else {
+      this.smoothedRotationTarget.lerp(rotationTarget, this.mouseLerp);
     }
 
-    // =========================================================================
-    // PHYSICS & UPDATE
-    // =========================================================================
+    for (let i = 0; i < this.base.length; i++) {
+      const base = this.base[i];
+      const pos = this.pos[i];
+      const vel = this.vel[i];
 
-    updateAndDraw(mx, my, revealTargets = []) {
-        const curMouse = this.p.createVector(mx, my);
-        if (!this._mouseInit) {
-            this.smoothedMouse.set(curMouse);
-            this._mouseInit = true;
-        } else {
-            this.smoothedMouse.lerp(curMouse, this.mouseLerp);
+      // ── arrow culling ── compute presence BEFORE displacement.
+      // Arrows whose grid-base sits deep inside a repulsor get presence → 0:
+      // neither displaced nor drawn. Prevents the rim pile-up where displaced
+      // arrows would otherwise stack against the hole boundary.
+      let presence = 1;
+      let renderAlpha = 1;
+      const ccf = this.arrowCulling.circleCoreFraction;
+      const rcf = this.arrowCulling.rectCoreFraction;
+
+      for (const repulsor of repulsors) {
+        if (presence < 0.01) break;
+        if (repulsor.type === "circle") {
+          if (repulsor.holeRadius < 1e-3) continue;
+          const act = repulsor.activation ?? 0;
+          if (act < 1e-3) continue;
+          this._tmpDiff.set(base);
+          this._tmpDiff.sub(repulsor.center);
+          const d = this._tmpDiff.mag();
+          const coreR = repulsor.holeRadius * ccf;
+          let finalLp = 1;
+          if (d < coreR) finalLp = 0;
+          else if (d < repulsor.holeRadius)
+            finalLp = (d - coreR) / (repulsor.holeRadius - coreR);
+
+          let curPresence = 1 - act * (1 - finalLp);
+          if (curPresence < presence) presence = curPresence;
+
+          if (finalLp === 0) {
+            if (curPresence < renderAlpha) renderAlpha = curPresence;
+          }
+        } else if (repulsor.type === "rect") {
+          const scale = repulsor.strength ?? 0;
+          if (scale < 1e-3) continue;
+
+          const bW_final = repulsor.halfWidth + (repulsor.clearPadding || 0);
+          const bH_final = repulsor.halfHeight + (repulsor.clearPadding || 0);
+          const r_final = Math.min(
+            repulsor.cornerRadius || 0,
+            bW_final,
+            bH_final,
+          );
+
+          this._tmpDiff.set(base);
+          this._tmpDiff.sub(repulsor.center);
+          const dx_final = Math.abs(this._tmpDiff.x) - (bW_final - r_final);
+          const dy_final = Math.abs(this._tmpDiff.y) - (bH_final - r_final);
+          const dist_final =
+            Math.sqrt(Math.max(dx_final, 0) ** 2 + Math.max(dy_final, 0) ** 2) +
+            Math.min(Math.max(dx_final, dy_final), 0) -
+            r_final;
+
+          let lp = 1;
+          if (dist_final <= 0) {
+            lp = 1 - scale;
+            if (lp < renderAlpha) renderAlpha = lp;
+          }
+
+          if (lp < presence) presence = lp;
         }
-        const m = this.smoothedMouse;
-        const pointerPresence = this._updatePointerPresence();
+      }
 
-        // 1. Compute hole data for all targets
-        const targets = Array.isArray(revealTargets) ? revealTargets : (revealTargets ? [revealTargets] : []);
+      if (presence < 0.01) {
+        pos.set(base);
+        vel.set(0, 0);
+        continue;
+      }
 
-        const activeHoles = [];
-        for (const target of targets) {
-            const data = target.computeHole(m.copy());
-            if (data) {
-                data.type = 'circle';
-                activeHoles.push(data);
-            }
-            if (typeof target.getExtraRepulsion === 'function') {
-                const extraRepulsor = target.getExtraRepulsion();
-                if (extraRepulsor) {
-                    activeHoles.push(extraRepulsor);
-                }
-            }
-        }
+      this._tmpTarget.set(base);
 
-        // Pre-calculate properties
-        const repulsors = activeHoles.map(h => {
-            if (h.type === 'rect') {
-                // Rectangular repulsion setup
-                const halfWidth = h.width / 2;
-                const halfHeight = h.height / 2;
-                return {
-                    type: 'rect',
-                    center: h.center,
-                    halfWidth,
-                    halfHeight,
-                    clearPadding: h.clearPadding,
-                    featherPadding: h.featherPadding,
-                    strength: h.strength || 1
-                };
-            } else {
-                // Circular repulsion setup (existing logic)
-                const holeCenter = h.center;
-                const baseHoleRadius = h.radius;
-                const holeRadius = baseHoleRadius * pointerPresence;
-                const falloffRange = holeRadius * this.falloffMultiplier;
-                const outerRadius = holeRadius + falloffRange;
-                const boundaryPush = falloffRange * this.outerStrength;
-
-                const holeClearRadius = h.clearRadius;
-                const holeClearFeather = h.clearFeather;
-
-                return {
-                    type: 'circle',
-                    center: holeCenter,
-                    holeRadius,
-                    falloffRange,
-                    outerRadius,
-                    boundaryPush,
-                    holeClearRadius,
-                    holeClearFeather,
-                    activation: h.activation
-                };
-            }
-        });
-
-        // Calculate the maximum activation to blend cursor repulsion (only for flowers)
-        let maxActivation = 0;
-        for (const h of activeHoles) {
-            if (h.type === 'circle' && h.activation > maxActivation) {
-                maxActivation = h.activation;
-            }
-        }
-
-        const blendingFactor = 1 - maxActivation;
-        const cursorClearRadius = this.cursorClearRadius * pointerPresence * blendingFactor;
-        const cursorClearFeather = this.cursorClearFeather * pointerPresence * blendingFactor;
-
-        // Default rotation target is the smoothed mouse.
-        // Switches to a flower's center when the cursor is inside its arrowSnapRadius,
-        // making nearby arrows point toward the flower (visual "pull inward" effect).
-        let rotationTarget = m;
-        for (const h of activeHoles) {
-            if (h.snapCenter) {
-                rotationTarget = h.snapCenter;
-                break; // First flower with snapCenter wins; they are spatially distinct.
-            }
-        }
-
-        if (!this._rotationInit) {
-            this.smoothedRotationTarget.set(rotationTarget);
-            this._rotationInit = true;
-        } else {
-            this.smoothedRotationTarget.lerp(rotationTarget, this.mouseLerp);
-        }
-
-        for (let i = 0; i < this.base.length; i++) {
-            const base = this.base[i];
-            const pos = this.pos[i];
-            const vel = this.vel[i];
-
-            this._tmpTarget.set(base);
-
-            // Accumulate forces from all repulsors
-            for (const repulsor of repulsors) {
-                this._tmpDiff.set(base);
-                this._tmpDiff.sub(repulsor.center);
-
-                if (repulsor.type === 'rect') {
-                    // RECTANGULAR -> ELLIPTICAL REPULSION
-                    // transform the rectangular bounding box into a circumscribed ellipse.
-
-                    const scale = repulsor.strength;
-                    if (scale < 1e-4) continue;
-
-                    // Calculate base dimensions including padding
-                    const boxW = repulsor.halfWidth + (repulsor.clearPadding || 0);
-                    const boxH = repulsor.halfHeight + (repulsor.clearPadding || 0);
-
-                    // Apply strength scaling for animation
-                    const Rx = boxW * Math.SQRT2 * scale;
-                    const Ry = boxH * Math.SQRT2 * scale;
-
-                    const feather = repulsor.featherPadding || 0;
-
-                    // Calculate normalized distance to ellipse center
-                    const dx = Math.abs(this._tmpDiff.x);
-                    const dy = Math.abs(this._tmpDiff.y);
-
-                    // Avoid division by zero
-                    if (Rx < 1e-4 || Ry < 1e-4) continue;
-
-                    const nx = dx / Rx;
-                    const ny = dy / Ry;
-                    const distSq = nx * nx + ny * ny;
-                    const dist = Math.sqrt(distSq);
-
-                    if (dist < 1) {
-                        // INSIDE HARD EXCLUSION ZONE
-                        if (dist > 1e-4) {
-                            this._tmpTarget.x = repulsor.center.x + this._tmpDiff.x / dist;
-                            this._tmpTarget.y = repulsor.center.y + this._tmpDiff.y / dist;
-
-                            // Add the constant feather push
-                            if (feather > 0) {
-                                const extraPush = feather * 0.25 * scale;
-                                const len = Math.hypot(this._tmpDiff.x, this._tmpDiff.y);
-                                if (len > 1e-4) {
-                                    this._tmpTarget.x += (this._tmpDiff.x / len) * extraPush;
-                                    this._tmpTarget.y += (this._tmpDiff.y / len) * extraPush;
-                                }
-                            }
-                        } else {
-                            const extraPush = feather > 0 ? feather * 0.25 * scale : 0;
-                            this._tmpTarget.x = repulsor.center.x + Rx + extraPush;
-                            this._tmpTarget.y = repulsor.center.y;
-                        }
-
-                    } else {
-                        // OUTSIDE HARD ZONE - CHECK FEATHER
-                        if (feather > 0) {
-                            const RxOuter = Rx + feather;
-                            const RyOuter = Ry + feather;
-
-                            const nxOuter = dx / RxOuter;
-                            const nyOuter = dy / RyOuter;
-                            const distSqOuter = nxOuter * nxOuter + nyOuter * nyOuter;
-
-                            if (distSqOuter < 1) {
-                                // INSIDE FEATHER ZONE
-
-                                const u_in = 1 / dist;
-                                const u_out = 1 / Math.sqrt(distSqOuter);
-
-                                const denom = u_out - u_in;
-                                if (denom > 1e-6) {
-                                    const t = (1 - u_in) / denom;
-
-                                    const pushFactor = (1 - t) * (1 - t);
-                                    const push = feather * pushFactor * 0.25 * scale;
-
-                                    const len = Math.hypot(this._tmpDiff.x, this._tmpDiff.y) || 1;
-                                    const dirX = this._tmpDiff.x / len;
-                                    const dirY = this._tmpDiff.y / len;
-
-                                    this._tmpTarget.x += dirX * push;
-                                    this._tmpTarget.y += dirY * push;
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // Circular Repulsion
-                    const d = this._tmpDiff.mag();
-
-                    if (d < repulsor.outerRadius) {
-                        if (d > this.directionEpsilon) {
-                            this._tmpDir.set(this._tmpDiff);
-                            this._tmpDir.mult(1 / d);
-                        } else {
-                            this._tmpDir.set(1, 0);
-                        }
-
-                        if (d < repulsor.holeRadius) {
-                            const insideNorm = this.p.constrain((repulsor.holeRadius - d) / repulsor.holeRadius, 0, 1);
-                            const eased = 1 - Math.exp(-this.innerEase * insideNorm);
-                            const push = repulsor.boundaryPush + repulsor.falloffRange * this.innerExtraStrength * eased;
-
-                            this._tmpDir.mult(push);
-                            this._tmpTarget.add(this._tmpDir);
-                        } else {
-                            const falloffNorm = this.p.constrain((repulsor.outerRadius - d) / repulsor.falloffRange, 0, 1);
-                            const eased = this.p.pow(falloffNorm, this.outerFalloffExponent);
-                            const push = repulsor.falloffRange * this.outerStrength * eased;
-
-                            if (push > this.pushEpsilon) {
-                                this._tmpDir.mult(push);
-                                this._tmpTarget.add(this._tmpDir);
-                            }
-                        }
-                    }
-                }
-            }
-
-            this._applyClearPush(base, m, cursorClearRadius, cursorClearFeather);
-
-            for (const repulsor of repulsors) {
-                if (repulsor.type === 'circle' && repulsor.holeClearRadius > 0) {
-                    this._applyClearPush(base, repulsor.center, repulsor.holeClearRadius, repulsor.holeClearFeather);
-                }
-            }
-
-            // Physics Integration
-            this._tmpToTarget.set(this._tmpTarget);
-            this._tmpToTarget.sub(pos);
-            this._tmpToTarget.mult(this.stiffness);
-
-            vel.mult(this.damping);
-            vel.add(this._tmpToTarget);
-
-            if (vel.magSq() > this.maxSpeed * this.maxSpeed) {
-                vel.setMag(this.maxSpeed);
-            }
-
-            pos.add(vel);
-
-            // Rotation Calculation
-            // Default to looking at mouse
-            this._tmpDirToMouse.set(this.smoothedRotationTarget); // Use the smoothed target
-            this._tmpDirToMouse.sub(pos);
-
-            const angle = this._tmpDirToMouse.magSq() > this.angleEpsilon
-                ? this._tmpDirToMouse.heading()
-                : 0;
-
-            this.p.push();
-            this.p.translate(pos.x, pos.y);
-            this.p.rotate(angle);
-            this._arrow(this.arrowLen);
-            this.p.pop();
-        }
-    }
-
-    // =========================================================================
-    // RENDERING HELPERS
-    // =========================================================================
-
-    /**
-     * Applies a soft circular exclusion push to this._tmpTarget.
-     * Arrows inside `clearRadius` are pushed firmly outward.
-     * Arrows in the feather zone get a progressively weaker push.
-     *
-     * @param {p5.Vector} base    - Arrow base position
-     * @param {p5.Vector} center  - Center of the exclusion zone
-     * @param {number}    clearRadius  - Hard exclusion radius (no arrows inside)
-     * @param {number}    clearFeather - Soft transition radius beyond clearRadius
-     */
-    _applyClearPush(base, center, clearRadius, clearFeather) {
-        if (clearRadius <= 0 && clearFeather <= 0) return;
-
+      // Accumulate forces from every active repulsor.
+      // Asymmetry: circles scale the inside push by `presence` so culling arrows
+      // ease out, while rects push the exact SDF distance to the boundary
+      // (the geometry already guarantees the arrow exits the cavity in one step).
+      for (const repulsor of repulsors) {
         this._tmpDiff.set(base);
-        this._tmpDiff.sub(center);
-        const d = this._tmpDiff.mag();
+        this._tmpDiff.sub(repulsor.center);
 
-        if (d >= clearRadius + clearFeather) return;
+        if (repulsor.type === "rect") {
+          // Rounded-rect SDF: sdRoundBox(p, b, r) = sdBox(p, b - r) - r.
+          // Compute the box SDF against the shrunk box (bW-r, bH-r), then
+          // subtract r. Gradient direction matches the raw box SDF — only the
+          // distance shifts.
+          const scale = repulsor.strength;
+          if (scale < 1e-4) continue;
 
-        if (d > this.directionEpsilon) {
-            this._tmpDir.set(this._tmpDiff);
-            this._tmpDir.mult(1 / d);
+          const bW =
+            (repulsor.halfWidth + (repulsor.clearPadding || 0)) * scale;
+          const bH =
+            (repulsor.halfHeight + (repulsor.clearPadding || 0)) * scale;
+          const feather = (repulsor.featherPadding || 0) * scale;
+          const cornerR = Math.min(
+            (repulsor.cornerRadius || 0) * scale,
+            bW,
+            bH,
+          );
+
+          if (bW < 1e-4 || bH < 1e-4) continue;
+
+          const bSW = bW - cornerR;
+          const bSH = bH - cornerR;
+          const dx = Math.abs(this._tmpDiff.x) - bSW;
+          const dy = Math.abs(this._tmpDiff.y) - bSH;
+          const rawDist =
+            Math.sqrt(Math.max(dx, 0) ** 2 + Math.max(dy, 0) ** 2) +
+            Math.min(Math.max(dx, dy), 0);
+          const dist = rawDist - cornerR;
+
+          if (dist > feather) continue;
+
+          let nx = 0,
+            ny = 0;
+          if (rawDist > 0) {
+            const vecX = Math.max(dx, 0) * Math.sign(this._tmpDiff.x);
+            const vecY = Math.max(dy, 0) * Math.sign(this._tmpDiff.y);
+            const len = Math.sqrt(vecX * vecX + vecY * vecY);
+            if (len > 1e-4) {
+              nx = vecX / len;
+              ny = vecY / len;
+            }
+          } else {
+            if (dx > dy) {
+              nx = Math.sign(this._tmpDiff.x) || 1;
+              ny = 0;
+            } else {
+              nx = 0;
+              ny = Math.sign(this._tmpDiff.y) || 1;
+            }
+          }
+
+          if (dist < 0) {
+            // inside hard zone: push exactly to the boundary, plus a constant
+            // feather offset so the arrow settles just outside
+            const extraPush =
+              feather > 0 ? feather * this.featherPushStrength : 0;
+            this._tmpTarget.x += nx * (-dist + extraPush);
+            this._tmpTarget.y += ny * (-dist + extraPush);
+          } else {
+            // outside hard zone, inside feather: quadratic ease-out push
+            if (feather > 0) {
+              const t = dist / feather;
+              const pushFactor = (1 - t) * (1 - t);
+              const push = feather * pushFactor * this.featherPushStrength;
+
+              this._tmpTarget.x += nx * push;
+              this._tmpTarget.y += ny * push;
+            }
+          }
         } else {
-            this._tmpDir.set(1, 0);
+          const d = this._tmpDiff.mag();
+
+          if (d < repulsor.outerRadius) {
+            if (d > this.directionEpsilon) {
+              this._tmpDir.set(this._tmpDiff);
+              this._tmpDir.mult(1 / d);
+            } else {
+              this._tmpDir.set(1, 0);
+            }
+
+            if (d < repulsor.holeRadius) {
+              const insideNorm = this.p.constrain(
+                (repulsor.holeRadius - d) / repulsor.holeRadius,
+                0,
+                1,
+              );
+              const eased = 1 - Math.exp(-this.innerEase * insideNorm);
+              const push =
+                repulsor.boundaryPush +
+                repulsor.falloffRange * this.innerExtraStrength * eased;
+
+              this._tmpDir.mult(push * presence);
+              this._tmpTarget.add(this._tmpDir);
+            } else {
+              const falloffNorm = this.p.constrain(
+                (repulsor.outerRadius - d) / repulsor.falloffRange,
+                0,
+                1,
+              );
+              const eased = this.p.pow(falloffNorm, this.outerFalloffExponent);
+              const push = repulsor.falloffRange * this.outerStrength * eased;
+
+              if (push > this.pushEpsilon) {
+                this._tmpDir.mult(push);
+                this._tmpTarget.add(this._tmpDir);
+              }
+            }
+          }
         }
+      }
 
-        let push = 0;
-        if (d < clearRadius) {
-            push = (clearRadius - d) + (clearFeather * 0.25);
-        } else if (clearFeather > 0) {
-            const t = 1 - (d - clearRadius) / clearFeather;
-            push = clearFeather * (t * t) * 0.25;
+      this._applyClearPush(base, m, cursorClearRadius, cursorClearFeather);
+
+      for (const repulsor of repulsors) {
+        if (repulsor.type === "circle" && repulsor.holeClearRadius > 0) {
+          this._applyClearPush(
+            base,
+            repulsor.center,
+            repulsor.holeClearRadius,
+            repulsor.holeClearFeather,
+          );
         }
+      }
 
-        if (push > 0) {
-            this._tmpDir.mult(push);
-            this._tmpTarget.add(this._tmpDir);
-        }
+      this._tmpToTarget.set(this._tmpTarget);
+      this._tmpToTarget.sub(pos);
+      this._tmpToTarget.mult(this.stiffness);
+
+      vel.mult(this.damping);
+      vel.add(this._tmpToTarget);
+
+      if (vel.magSq() > this.maxSpeed * this.maxSpeed) {
+        vel.setMag(this.maxSpeed);
+      }
+
+      pos.add(vel);
+
+      this._tmpDirToMouse.set(this.smoothedRotationTarget);
+      this._tmpDirToMouse.sub(pos);
+
+      const angle =
+        this._tmpDirToMouse.magSq() > this.angleEpsilon
+          ? this._tmpDirToMouse.heading()
+          : 0;
+
+      this.p.push();
+      this.p.translate(pos.x, pos.y);
+      this.p.rotate(angle);
+      if (renderAlpha < 1) {
+        this.p.drawingContext.globalAlpha = renderAlpha;
+      }
+      this._arrow(this.arrowLen);
+      this.p.pop();
+    }
+  }
+
+  // ── RENDERING & HELPERS ───────────────────────────────────────────────────
+
+  // Soft circular exclusion push around `center`: arrows inside `clearRadius`
+  // get a firm outward push; arrows in the feather band fall off quadratically.
+  _applyClearPush(base, center, clearRadius, clearFeather) {
+    if (clearRadius <= 0 && clearFeather <= 0) return;
+
+    this._tmpDiff.set(base);
+    this._tmpDiff.sub(center);
+    const d = this._tmpDiff.mag();
+
+    if (d >= clearRadius + clearFeather) return;
+
+    if (d > this.directionEpsilon) {
+      this._tmpDir.set(this._tmpDiff);
+      this._tmpDir.mult(1 / d);
+    } else {
+      this._tmpDir.set(1, 0);
     }
 
-    _arrow(len) {
-        const { shaftRatio, tipLengthRatio, tipWidthRatio } = this.arrowShape;
-        const shaftHalf = len * shaftRatio;
-        const tipLength = len * tipLengthRatio;
-        const tipWidth = len * tipWidthRatio;
-
-        const tipStart = shaftHalf;
-        const tipEnd = tipStart + tipLength;
-
-        this.p.line(-shaftHalf, 0, tipEnd, 0);
-        this.p.line(tipEnd, 0, tipStart, tipWidth);
-        this.p.line(tipEnd, 0, tipStart, -tipWidth);
+    let push = 0;
+    if (d < clearRadius) {
+      push = clearRadius - d + clearFeather * this.featherPushStrength;
+    } else if (clearFeather > 0) {
+      const t = 1 - (d - clearRadius) / clearFeather;
+      push = clearFeather * (t * t) * this.featherPushStrength;
     }
 
-    _updatePointerPresence() {
-        const hasPointer = this._hasActivePointer();
-        const target = hasPointer ? 1 : 0;
-        const rate = hasPointer
-            ? this.pointerPresenceConfig.enterRate
-            : this.pointerPresenceConfig.exitRate;
-        const clampedRate = this.p.constrain(rate, 0, 1);
-        this.pointerPresenceValue = this.p.lerp(this.pointerPresenceValue, target, clampedRate);
-        if (this.p.abs(this.pointerPresenceValue - target) < 1e-3) {
-            this.pointerPresenceValue = target;
-        }
-        return this.pointerPresenceValue;
+    if (push > 0) {
+      this._tmpDir.mult(push);
+      this._tmpTarget.add(this._tmpDir);
     }
+  }
 
-    _hasActivePointer() {
-        return this.pointerInCanvas;
-    }
+  _arrow(len) {
+    const { shaftRatio, tipLengthRatio, tipWidthRatio } = this.arrowShape;
+    const shaftHalf = len * shaftRatio;
+    const tipLength = len * tipLengthRatio;
+    const tipWidth = len * tipWidthRatio;
 
-    setPointerInCanvas(state) {
-        this.pointerInCanvas = !!state;
-    }
+    const tipStart = shaftHalf;
+    const tipEnd = tipStart + tipLength;
 
-    resetPointerState() {
-        this.pointerInCanvas = false;
-        this.pointerPresenceValue = 0;
-        this._mouseInit = false;
-        this._rotationInit = false;
+    this.p.line(-shaftHalf, 0, tipEnd, 0);
+    this.p.line(tipEnd, 0, tipStart, tipWidth);
+    this.p.line(tipEnd, 0, tipStart, -tipWidth);
+  }
+
+  // ── POINTER STATE ─────────────────────────────────────────────────────────
+
+  _updatePointerPresence() {
+    const hasPointer = this._hasActivePointer();
+    const target = hasPointer ? 1 : 0;
+    const rate = hasPointer
+      ? this.pointerPresenceConfig.enterRate
+      : this.pointerPresenceConfig.exitRate;
+    const clampedRate = this.p.constrain(rate, 0, 1);
+    this.pointerPresenceValue = this.p.lerp(
+      this.pointerPresenceValue,
+      target,
+      clampedRate,
+    );
+    if (this.p.abs(this.pointerPresenceValue - target) < 1e-3) {
+      this.pointerPresenceValue = target;
     }
+    return this.pointerPresenceValue;
+  }
+
+  _hasActivePointer() {
+    return this.pointerInCanvas;
+  }
+
+  setPointerInCanvas(state) {
+    this.pointerInCanvas = !!state;
+  }
+
+  resetPointerState() {
+    this.pointerInCanvas = false;
+    this.pointerPresenceValue = 0;
+    this._mouseInit = false;
+    this._rotationInit = false;
+  }
 }
