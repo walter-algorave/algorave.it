@@ -16,6 +16,7 @@ export class PreviewManager {
     const repulsion = this.previewConfig?.repulsion;
     const layout = this.previewConfig?.layout;
     const textFade = this.previewConfig?.textFade;
+    const textCursorReact = this.previewConfig?.textCursorReact;
 
     // one FlowerPreview per flower that opted in via `preview` config
     this.previews = new Map();
@@ -31,6 +32,7 @@ export class PreviewManager {
             repulsion,
             layout,
             textFade,
+            textCursorReact,
           ),
         );
       }
@@ -94,11 +96,13 @@ export class PreviewManager {
     const repulsion = previewConfig.repulsion;
     const layout = previewConfig.layout;
     const textFade = previewConfig.textFade;
+    const textCursorReact = previewConfig.textCursorReact;
     for (const fp of this.previews.values()) {
       fp.applyPhysicsConfig(physics);
       fp.applyRepulsionConfig(repulsion);
       fp.applyLayoutConfig(layout);
       fp.applyTextFadeConfig(textFade);
+      fp.applyTextCursorReactConfig(textCursorReact);
     }
     if (Array.isArray(previewConfig.actionFlowers)) {
       for (
@@ -266,6 +270,7 @@ export class PreviewManager {
       this._resetActionFlowers();
       this.activePreview = null;
       this.anchorIdx = -1;
+      this.pendingAnchorIdx = -1;
     }
   }
 
@@ -397,6 +402,14 @@ export class PreviewManager {
   _activateActionFlowers() {
     for (const af of this.actionFlowers) {
       af.setLocked(false);
+      // Wipe transient state from the previous cycle. magnetism in particular
+      // decays slowly while locked, then freezes when the flower drops out of
+      // providers between previews — without this reset the residual would
+      // emit a stale snapCenter on the next open and tug the field's rotation
+      // target toward the action flower's position.
+      af.magnetism = 0;
+      af.activation = 0;
+      af.fieldActivation = 0;
       const st = this._actionState.get(af);
       st.armed = false;
       st.fired = false;

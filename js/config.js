@@ -219,6 +219,29 @@ export const CONFIG = {
       outLerpRate: 0.3,
     },
 
+    // Per-letter spring-damped reaction to the cursor on preview text.
+    // Same physics model as floatingImage tiles, applied to each glyph.
+    // `appliesTo` is the allowlist of text lines that get letter particles —
+    // unlisted lines fall back to the single-string draw path.
+    textCursorReact: {
+      enabled: true,
+      appliesTo: ["title"],
+      // Smoothness trick: halve stiffness AND velocityScale together. Steady
+      // offset = strength*radius*velScale/stiffness stays the same, but the
+      // per-frame velocity kick is smaller and the spring time constant
+      // longer — the letter ramps over many frames instead of snapping.
+      // maxSpeed left wide so the spring is never clipped.
+      stiffness: 0.055,
+      damping: 0.88,
+      maxSpeed: 6.0,
+      // Per-letter displacement cap as a fraction of that line's font size —
+      // keeps the effect proportional across title / subtitle / body.
+      maxOffsetSizeRatio: 0.18,
+      repulsionRadiusRatio: 150 / BASE_SHORT_SIDE,
+      repulsionStrength: 0.11,
+      repulsionVelocityScale: 0.045,
+    },
+
     floatingImage: {
       stiffness: 0.1, // ↑ → tighter pull-back
       damping: 0.78, // ↓ → more friction (less drift)
@@ -479,6 +502,23 @@ export function buildResponsivePreviewConfig(p, base) {
       }
     : null;
 
+  const tcr = base.textCursorReact;
+  const textCursorReact =
+    tcr && tcr.enabled
+      ? {
+          enabled: true,
+          appliesTo: Array.isArray(tcr.appliesTo) ? tcr.appliesTo.slice() : [],
+          stiffness: tcr.stiffness,
+          damping: tcr.damping,
+          maxSpeed: tcr.maxSpeed,
+          maxOffsetSizeRatio: tcr.maxOffsetSizeRatio,
+          repulsionRadius:
+            (tcr.repulsionRadiusRatio ?? 0) * BASE_SHORT_SIDE * flowerScale,
+          repulsionStrength: tcr.repulsionStrength,
+          repulsionVelocityScale: tcr.repulsionVelocityScale,
+        }
+      : null;
+
   const baseTemplate = {
     ...CONFIG.flower,
     ...(base.actionFlowerOverrides || {}),
@@ -499,6 +539,7 @@ export function buildResponsivePreviewConfig(p, base) {
     // layout ratios resolved at draw-time against the live canvas shortSide.
     layout: base.layout,
     textFade: base.textFade,
+    textCursorReact,
     closingLerpRate: base.closingLerpRate,
   };
 }

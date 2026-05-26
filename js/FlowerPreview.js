@@ -6,6 +6,7 @@
 
 import { MEDIA_RENDERERS, hasRenderer } from "./mediaRenderers.js";
 import { drawStyledText } from "./textUtils.js";
+import { LetterField } from "./LetterField.js";
 
 const STATE_IDLE = "idle";
 const STATE_MOUNTING = "mounting";
@@ -29,6 +30,7 @@ export class FlowerPreview {
     repulsionConfig,
     layoutConfig,
     textFadeConfig,
+    textCursorReactConfig,
   ) {
     this.p = p;
     this.config = this._normalizeConfig(previewConfig);
@@ -43,12 +45,18 @@ export class FlowerPreview {
     this.repulsionConfig = repulsionConfig ?? null;
     this.layoutConfig = layoutConfig ?? null;
     this.textFadeConfig = textFadeConfig ?? null;
+    this.textCursorReactConfig = textCursorReactConfig ?? null;
 
     this.state = STATE_IDLE;
 
     this.renderers = [];
     this.textAlpha = 0; // 0..1 — lerps for foreground text fade
     this._lastLayout = null;
+
+    // Per-line { title?, subtitle?, body? } LetterField — built lazily once
+    // the layout is known. Cleared when the preview returns to idle so the
+    // next open re-measures against the (possibly resized) layout.
+    this._letterFields = {};
 
     // Grid snap function injected by PreviewManager via prepareLayout/mount.
     this._snapFn = null;
@@ -86,6 +94,14 @@ export class FlowerPreview {
   applyTextFadeConfig(textFade) {
     if (!textFade) return;
     this.textFadeConfig = textFade;
+  }
+
+  // null disables the per-letter reaction (drawStyledText fallback). Wipe
+  // the cache so the next layout rebuilds against the new appliesTo list /
+  // physics — and old fields don't leak into a now-disabled draw.
+  applyTextCursorReactConfig(textCursorReact) {
+    this.textCursorReactConfig = textCursorReact ?? null;
+    this._letterFields = {};
   }
 
   // ── CONFIG ────────────────────────────────────────────────────────────────
@@ -310,7 +326,53 @@ export class FlowerPreview {
     if (!this._lastLayout) {
       this._lastLayout = this._layout(this._snapFn);
       this._rebuildRepulsors();
+      this._syncLetterFields();
     }
+  }
+
+  // ── LETTER FIELDS ─────────────────────────────────────────────────────────
+
+  // Rebuild or relocate one LetterField per enabled text line. Reuses an
+  // existing field via relocate() when text + size match (resize/relayout),
+  // so the spring state survives a window resize.
+  _syncLetterFields() {
+    const cfg = this.textCursorReactConfig;
+    const layout = this._lastLayout;
+    if (!cfg || !cfg.enabled || !layout) {
+      this._letterFields = {};
+      return;
+    }
+    const allow = new Set(cfg.appliesTo || []);
+    const next = {};
+    for (const key of ["title", "subtitle", "body"]) {
+      if (!allow.has(key)) continue;
+      const t = layout.textPos[key];
+      const text = this.config[key];
+      if (!t || !text) continue;
+      const weight = TEXT_STYLE[key].weight;
+      const existing = this._letterFields[key];
+      if (
+        existing &&
+        existing.text === text &&
+        existing.size === t.size &&
+        existing.weight === weight
+      ) {
+        existing.applyPhysicsConfig(cfg);
+        existing.relocate(t.x, t.y);
+        next[key] = existing;
+      } else {
+        next[key] = new LetterField({
+          p: this.p,
+          text,
+          baseX: t.x,
+          baseY: t.y,
+          size: t.size,
+          weight,
+          physics: cfg,
+        });
+      }
+    }
+    this._letterFields = next;
   }
 
   // ── LIFECYCLE ─────────────────────────────────────────────────────────────
@@ -346,6 +408,7 @@ export class FlowerPreview {
 
     this._lastLayout = layout;
     this._rebuildRepulsors();
+    this._syncLetterFields();
     this.state = STATE_MOUNTING;
   }
 
@@ -370,6 +433,7 @@ export class FlowerPreview {
     }
     this._lastLayout = layout;
     this._rebuildRepulsors();
+    this._syncLetterFields();
   }
 
   // ── REPULSORS ─────────────────────────────────────────────────────────────
@@ -478,6 +542,11 @@ export class FlowerPreview {
     if (this.state === STATE_IDLE) return;
 
     for (const r of this.renderers) r.update(mouseVec);
+    // Letters keep updating even while the text alpha is below threshold so
+    // they're already settled at their bases when the fade-in starts.
+    for (const key in this._letterFields) {
+      this._letterFields[key].update(mouseVec);
+    }
 
     if (this.state === STATE_MOUNTING) {
       const minAlpha = this.renderers.length
@@ -502,6 +571,7 @@ export class FlowerPreview {
         this.renderers = [];
         this._lastLayout = null;
         this._repulsors = [];
+        this._letterFields = {};
       }
     }
   }
@@ -530,33 +600,25 @@ export class FlowerPreview {
     p.textAlign(p.CENTER, p.CENTER);
     p.noStroke();
 
-    if (layout.textPos.title) {
-      const t = layout.textPos.title;
-      drawStyledText(p, this.config.title, t.x, t.y, {
-        weight: TEXT_STYLE.title.weight,
-        size: t.size,
-        fill: 20,
-        alpha: alphaT * TEXT_STYLE.title.fillFactor,
-      });
-    }
-    if (layout.textPos.subtitle) {
-      const t = layout.textPos.subtitle;
-      drawStyledText(p, this.config.subtitle, t.x, t.y, {
-        weight: TEXT_STYLE.subtitle.weight,
-        size: t.size,
-        fill: 40,
-        alpha: alphaT * TEXT_STYLE.subtitle.fillFactor,
-      });
-    }
-    if (layout.textPos.body) {
-      const t = layout.textPos.body;
-      drawStyledText(p, this.config.body, t.x, t.y, {
-        weight: TEXT_STYLE.body.weight,
-        size: t.size,
-        fill: 60,
-        alpha: alphaT * TEXT_STYLE.body.fillFactor,
-      });
-    }
+    const drawLine = (key, fill) => {
+      const t = layout.textPos[key];
+      if (!t) return;
+      const alpha = alphaT * TEXT_STYLE[key].fillFactor;
+      const field = this._letterFields[key];
+      if (field) {
+        field.draw({ fill, alpha });
+      } else {
+        drawStyledText(p, this.config[key], t.x, t.y, {
+          weight: TEXT_STYLE[key].weight,
+          size: t.size,
+          fill,
+          alpha,
+        });
+      }
+    };
+    drawLine("title", 20);
+    drawLine("subtitle", 40);
+    drawLine("body", 60);
 
     p.pop();
   }
