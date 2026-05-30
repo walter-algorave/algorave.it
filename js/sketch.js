@@ -76,7 +76,7 @@ const sketch = (p) => {
       const sprite = loadedSprites.get(src.sprite);
       const af = new BloomingFlower(
         p,
-        { ...cfg, action: { type: src.type, triggerTime: src.triggerTime } },
+        { ...cfg, action: { type: src.type, triggerTime: src.triggerTime, persistent: !!src.persistent } },
         sprite,
       );
       af.setLocked(true);

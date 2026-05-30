@@ -229,15 +229,23 @@ export class PreviewManager {
       const idx = this._actionSpringIdx;
       this._actionSpringIdx = -1;
       const af = this.actionFlowers[idx];
-      af.setLocked(true);
-      const st = this._actionState.get(af);
-      st.armed = true;
-      // triggerTime 'peak': fire NOW so preview fade-out and button close
-      // overlap as one continuous motion (same pattern as anchor flower on open).
-      // `fired` flag prevents the armed+isFullyClosed path below from double-firing.
-      if (af.action?.triggerTime === "peak") {
-        st.fired = true;
+      
+      if (af.action?.persistent) {
+        // Persistent action: fire at peak, let spring decay naturally.
+        // Flower stays unlocked and re-clickable.
         this._triggerAction(idx);
+      } else {
+        // Consumable action: lock → reverse-bloom → fire at triggerTime.
+        af.setLocked(true);
+        const st = this._actionState.get(af);
+        st.armed = true;
+        // triggerTime 'peak': fire NOW so preview fade-out and button close
+        // overlap as one continuous motion (same pattern as anchor flower on open).
+        // `fired` flag prevents the armed+isFullyClosed path below from double-firing.
+        if (af.action?.triggerTime === "peak") {
+          st.fired = true;
+          this._triggerAction(idx);
+        }
       }
     }
 
