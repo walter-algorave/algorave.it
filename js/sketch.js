@@ -206,6 +206,10 @@ const sketch = (p) => {
     // background images, below the preview text foreground.
     previewManager.updateAndDrawActionFlowers(now);
 
+    // Direct-link flowers (e.g. the GitHub anemone): park their <a> overlay
+    // over the flower while it's bloomed so a click opens the URL.
+    previewManager.updateMainLinkOverlays();
+
     previewManager.drawForegroundLayer();
 
     updatePointerCursor();
@@ -273,7 +277,7 @@ const sketch = (p) => {
     } else {
       for (const flower of bloomingFlowers) {
         if (
-          flower.hasPreview() &&
+          (flower.hasPreview() || flower.hasLink()) &&
           flower.isFullyBloomed &&
           pointerIsOverFlower(flower)
         ) {

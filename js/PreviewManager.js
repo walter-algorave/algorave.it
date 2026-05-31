@@ -73,18 +73,40 @@ export class PreviewManager {
 
     // HTML <a> floats invisibly over the link action flower; native click
     // bypasses Safari's popup blocker for window.open
-    this._linkOverlay = document.createElement("a");
-    this._linkOverlay.target = "_blank";
-    this._linkOverlay.style.position = "absolute";
-    this._linkOverlay.style.display = "none";
-    this._linkOverlay.style.cursor = "pointer";
-    this._linkOverlay.style.opacity = "0";
-    this._linkOverlay.style.zIndex = "100";
-    this._linkOverlay.style.webkitTapHighlightColor = "transparent";
+    this._linkOverlay = this._makeLinkAnchor();
 
+    // Main flowers carrying a direct `link` (no preview) get their own
+    // invisible <a>, shown over the flower while it's bloomed — same popup-safe
+    // trick, but persistent (no preview wraps them).
+    this._flowerLinkOverlays = new Map();
+    this.flowers.forEach((flower, idx) => {
+      if (
+        typeof flower.hasLink === "function" &&
+        flower.hasLink() &&
+        !flower.hasPreview()
+      ) {
+        this._flowerLinkOverlays.set(idx, this._makeLinkAnchor(flower.link));
+      }
+    });
+  }
+
+  // Creates an invisible <a target="_blank"> over the canvas; a real pointer
+  // click on it opens the URL natively, side-stepping popup blockers.
+  _makeLinkAnchor(href = null) {
+    const a = document.createElement("a");
+    a.target = "_blank";
+    a.rel = "noopener";
+    if (href) a.href = href;
+    a.style.position = "absolute";
+    a.style.display = "none";
+    a.style.cursor = "pointer";
+    a.style.opacity = "0";
+    a.style.zIndex = "100";
+    a.style.webkitTapHighlightColor = "transparent";
     if (this.p.canvas && this.p.canvas.parentElement) {
-      this.p.canvas.parentElement.appendChild(this._linkOverlay);
+      this.p.canvas.parentElement.appendChild(a);
     }
+    return a;
   }
 
   // ── RESPONSIVE ────────────────────────────────────────────────────────────
@@ -138,7 +160,7 @@ export class PreviewManager {
     const idx = findFlowerUnderPointer();
     if (
       idx >= 0 &&
-      this.flowers[idx].hasPreview() &&
+      (this.flowers[idx].hasPreview() || this.flowers[idx].hasLink()) &&
       !this.flowers[idx].isLocked()
     ) {
       this.pressedFlowerIdx = idx;
@@ -185,9 +207,10 @@ export class PreviewManager {
       if (flower.hasSpringEnabled()) {
         flower.startSpringRelease();
         this.springFlowerIdx = this.pressedFlowerIdx;
-      } else {
+      } else if (flower.hasPreview()) {
         this._openPreview(this.pressedFlowerIdx);
       }
+      // link-only flower with spring disabled: the <a> overlay opens the URL
     } else if (!stillOver && flower.activation > 0.05) {
       // released outside: play the lock-close anyway so the flower never pops
       // off via fast proximity-exit; self-unlocks once fully closed
@@ -220,7 +243,8 @@ export class PreviewManager {
     ) {
       const idx = this.springFlowerIdx;
       this.springFlowerIdx = -1;
-      this._openPreview(idx);
+      // link-only flowers: the <a> overlay already opened the URL on click
+      if (this.flowers[idx].hasPreview()) this._openPreview(idx);
     }
     if (
       this._actionSpringIdx >= 0 &&
@@ -323,14 +347,19 @@ export class PreviewManager {
   updateAndDrawActionFlowers(now) {
     if (!this.actionFlowers.length) return;
     const active = this.activePreview != null || this.pendingAnchorIdx >= 0;
+    // A preview without a content button never shows the link action flower at
+    // all — never updated, never drawn. Defensive: also kept locked in
+    // _activateActionFlowers, so this guarantees nothing renders on the rose.
+    const showLink = !!this.activePreview?.config?.hasLinkButton;
 
     let linkFlower = null;
     for (const af of this.actionFlowers) {
-      if (active) {
+      const isLink = af.action?.type === "link";
+      if (isLink) linkFlower = af;
+      if (active && !(isLink && !showLink)) {
         af.updateIdle(now, true);
         af.draw();
       }
-      if (af.action?.type === "link") linkFlower = af;
     }
 
     if (
@@ -350,6 +379,27 @@ export class PreviewManager {
       this._linkOverlay.style.display = "block";
     } else {
       this._linkOverlay.style.display = "none";
+    }
+  }
+
+  // Direct-link main flowers: keep an invisible <a> parked over each one while
+  // it's bloomed (and no preview is in flight), so a real click opens its URL.
+  updateMainLinkOverlays() {
+    if (!this._flowerLinkOverlays.size) return;
+    const previewBusy =
+      this.activePreview != null || this.pendingAnchorIdx >= 0;
+    for (const [idx, a] of this._flowerLinkOverlays) {
+      const flower = this.flowers[idx];
+      if (!previewBusy && flower.isFullyBloomed) {
+        const d = flower.tapLockRadius * 2;
+        a.style.left = flower.center.x - flower.tapLockRadius + "px";
+        a.style.top = flower.center.y - flower.tapLockRadius + "px";
+        a.style.width = d + "px";
+        a.style.height = d + "px";
+        a.style.display = "block";
+      } else {
+        a.style.display = "none";
+      }
     }
   }
 
@@ -408,7 +458,15 @@ export class PreviewManager {
   // nextWinkTime = 0 forces an immediate first wink so action flowers visibly
   // emerge instead of sitting at alpha 0 until the cursor wanders close
   _activateActionFlowers() {
+    // A preview without a content button keeps the link action flower locked
+    // (locked + activation 0 → never drawn, emits no hole). The close/back
+    // button is always activated.
+    const showLink = !!this.activePreview?.config?.hasLinkButton;
     for (const af of this.actionFlowers) {
+      if (af.action?.type === "link" && !showLink) {
+        af.setLocked(true);
+        continue;
+      }
       af.setLocked(false);
       // Wipe transient state from the previous cycle. magnetism in particular
       // decays slowly while locked, then freezes when the flower drops out of

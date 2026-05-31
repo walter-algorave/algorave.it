@@ -212,6 +212,16 @@ export const CONFIG = {
       // Bigger than textGap so the photo row breathes above the headline.
       mediaTextGapRatio: 0.04,
       containerMinWRatio: 0.45,
+
+      // Geometry for mediaLayout: "feature-left" — one large tile on the left,
+      // two stacked on the right. Ratios are against the live canvas shortSide,
+      // like the row tile ratios above. Ignored by the default "row" layout.
+      featureLayout: {
+        blockWRatio: 0.52, // total media-block width
+        blockHRatio: 0.34, // total media-block height
+        leftFraction: 0.6, // large left tile width as a fraction of blockW
+        innerGapRatio: 0.018, // gap between left/right column and between stacked tiles
+      },
     },
 
     textFade: {
@@ -313,49 +323,75 @@ export const CONFIG = {
   // Each entry = one flower on the canvas. Add / remove / reorder freely.
   //
   // Required: id, sprite, x/y (normalized 0–1), label.
-  // Optional `preview` object → turns the flower into a clickable hotspot;
-  // without it, the flower keeps the hover-only behaviour.
+  // Optional `preview` object → clickable hotspot that opens the overlay below.
+  // Optional `link` string WITHOUT a `preview` → the flower is a button that
+  //   opens the URL in a new tab on click (no overlay). With neither → hover-only.
   //
   //   preview: {
   //     title, subtitle, body,            // any combination, omit what's unused
-  //     link: "https://...",              // null → ↗ button hidden
+  //     linkButton: true | false,         // PER-FLOWER toggle for the content button (the ↗/PDF flower).
+  //                                       //   defaults to (link != null); false → back button only
+  //     link: "https://...",              // where the content button points; null = not wired yet
+  //     mediaLayout: "row"|"feature-left",// "row" (default) | 1 large left + 2 stacked right (needs 3 media)
   //     media: [                          // unknown types skipped silently
-  //       { type: 'image', src: '...' },
+  //       { type: 'image', src: '...' },  // omit src → gray placeholder slot
   //       // { type: 'youtube', id: '...' },
   //     ]
   //   }
   //
   // Legacy `images: [url, ...]` still accepted as a shorthand media list.
   flowers: [
+    // ── THESIS — visual scraping in poker (top-left) ──
+    // Title superimposed on bloom; preview = 2 screenshots (row layout) +
+    // content button (English thesis PDF, link added later) + back button.
     {
       id: "flower-1",
       sprite: "./assets/daisy_sprite.webp",
       x: 0.25,
       y: 0.25,
-      label: "Daisy Flower",
+      label: "Bachelor Thesis",
       preview: {
-        title: "Daisy Flower",
-        subtitle: "Bellis perennis · campo aperto",
-        link: "https://en.wikipedia.org/wiki/Common_daisy",
+        title: "Visual Scraping in Poker",
+        subtitle: "Template matching · GUI state reconstruction · 97.4%",
+        linkButton: true, // ← per-flower toggle: content button ON (the PDF button)
+        link: "https://drive.google.com/file/d/1D95jLl_ovSonugJrwpmV8ZPMzJ0gxWib/view?usp=share_link", // English thesis PDF (Google Drive)
         media: [
-          { type: "image", src: "./assets/daisy_img1.png" },
-          { type: "image", src: "./assets/daisy_img2.jpg" },
+          { type: "image", src: "./assets/thesis1.png" },
+          { type: "image", src: "./assets/thesis2.png" },
         ],
       },
     },
+    // ── GAME — SP (top-right) ──
+    // Preview = 3 asymmetric screenshots (one large left, two stacked right) +
+    // back button only (no content button — link/linkButton omitted).
     {
       id: "flower-2",
       sprite: "./assets/rose_sprite.webp",
       x: 0.75,
       y: 0.25,
-      label: "Rose",
+      label: "SP",
+      preview: {
+        title: "SP",
+        subtitle: "A driving game about surveillance capitalism",
+        linkButton: false, // ← per-flower toggle: content button OFF (no PDF/link)
+        mediaLayout: "feature-left",
+        media: [
+          { type: "image", src: "./assets/Sp1.png" }, // large left (horizontal)
+          { type: "image", src: "./assets/Sp2.png" }, // top right
+          { type: "image", src: "./assets/Sp3.png" }, // bottom right
+        ],
+      },
     },
+    // ── General GitHub (bottom-left) — direct-link button, NO preview ──
+    // A `link` (and no `preview`) makes the flower a button: press it and it
+    // opens the URL in a new tab (an invisible <a> overlay does the navigation).
     {
       id: "flower-3",
       sprite: "./assets/anemone_sprite.webp",
       x: 0.25,
       y: 0.75,
-      label: "Anemone",
+      label: "GitHub",
+      link: "https://github.com/walter-algorave",
     },
   ],
 };

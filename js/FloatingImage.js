@@ -125,11 +125,16 @@ export class FloatingImage {
       p.image(this.image, 0, 0, w, h);
       p.noTint();
     } else {
-      // soft gray placeholder shown until the image loads (or if load fails)
+      // soft gray placeholder shown until the image loads (or if load fails).
+      // Cap height to the slot's maxHeight so wide/short slots (asymmetric
+      // layouts) don't overflow vertically.
+      const ph = this.maxHeight
+        ? Math.min(this.size * 0.75, this.maxHeight)
+        : this.size * 0.75;
       p.noStroke();
       p.fill(230, 255 * a);
       p.rectMode(p.CENTER);
-      p.rect(0, 0, this.size, this.size * 0.75, 6);
+      p.rect(0, 0, this.size, ph, 6);
     }
 
     p.pop();

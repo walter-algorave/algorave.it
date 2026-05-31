@@ -133,6 +133,13 @@ export class FlowerPreview {
       subtitle: cfg.subtitle || "",
       body: cfg.body || "",
       link: cfg.link || null,
+      // "row" = uniform horizontal row (default); "feature-left" = one large tile
+      // on the left + two stacked on the right. Consumed by _computeMediaTiles.
+      mediaLayout: cfg.mediaLayout || "row",
+      // Whether the ↗ content button is shown for this preview. Defaults to "link
+      // present" so existing previews are unchanged; set linkButton:true to show
+      // the button before the URL exists, or omit both to hide it entirely.
+      hasLinkButton: cfg.linkButton ?? cfg.link != null,
       media: filtered,
     };
   }
@@ -183,13 +190,15 @@ export class FlowerPreview {
     const hasBody = !!this.config.body;
     const hasMedia = mediaCount > 0;
 
-    const mediaRowW = hasMedia
-      ? mediaCount * L.tileW + (mediaCount - 1) * L.tileGap
-      : 0;
+    // Media geometry: total block size + per-tile offsets from the block center.
+    // "row" preserves the original uniform row; "feature-left" is asymmetric.
+    const mediaBlock = hasMedia
+      ? this._computeMediaTiles(L, mediaCount, this.config.mediaLayout)
+      : { width: 0, height: 0, tiles: [] };
     const containerW =
-      Math.max(mediaRowW, shortSide * lc.containerMinWRatio) + 2 * L.pad;
+      Math.max(mediaBlock.width, shortSide * lc.containerMinWRatio) + 2 * L.pad;
 
-    const mediaSectionH = hasMedia ? L.tileH : 0;
+    const mediaSectionH = mediaBlock.height;
     const textBlockH =
       (hasTitle ? L.titleSize : 0) +
       (hasSubtitle ? (hasTitle ? L.textGap : 0) + L.subtitleSize : 0) +
@@ -197,7 +206,7 @@ export class FlowerPreview {
 
     // Center the actual content bbox on (cx, cy) rather than the padded
     // container — asymmetric padding around an empty text block would
-    // otherwise shift the media row off the geometric center.
+    // otherwise shift the media block off the geometric center.
     const mediaTextGap = hasMedia && textBlockH > 0 ? L.mediaTextGap : 0;
     const contentH = mediaSectionH + mediaTextGap + textBlockH;
 
@@ -210,18 +219,18 @@ export class FlowerPreview {
     let containerT = cy - containerH / 2;
 
     const contentTop = cy - contentH / 2;
-    const mediaRowL = cx - mediaRowW / 2;
-    const mediaCenterY = contentTop + L.tileH / 2;
-    const mediaPositions = [];
-    for (let i = 0; i < mediaCount; i++) {
-      mediaPositions.push({
-        x: mediaRowL + L.tileW / 2 + i * (L.tileW + L.tileGap),
-        y: mediaCenterY,
-      });
-    }
+    // Block centered horizontally on cx; its vertical center sits half a block
+    // height below the content top. Each tile carries its own w/h.
+    const blockCenterY = contentTop + mediaBlock.height / 2;
+    const mediaPositions = mediaBlock.tiles.map((t) => ({
+      x: cx + t.dx,
+      y: blockCenterY + t.dy,
+      w: t.w,
+      h: t.h,
+    }));
 
     const textTop = hasMedia
-      ? mediaCenterY + L.tileH / 2 + mediaTextGap
+      ? contentTop + mediaSectionH + mediaTextGap
       : contentTop;
     let textCursor = textTop;
     const textPos = {};
@@ -301,12 +310,11 @@ export class FlowerPreview {
 
     return {
       mediaPositions,
-      mediaSize: { w: L.tileW, h: L.tileH },
       textPos,
       textBounds,
 
-      // Kept for layout debugging only — the actual repulsor is computed
-      // from the tight bbox of mediaSize per tile + textBounds per line.
+      // Kept for layout debugging only — the actual repulsor is computed from
+      // the tight bbox of each tile's w/h + textBounds per line.
       containerBounds: {
         left: containerL,
         top: containerT,
@@ -314,6 +322,55 @@ export class FlowerPreview {
         height: containerH,
       },
     };
+  }
+
+  // Media block geometry: total { width, height } plus a { dx, dy, w, h } per
+  // tile, where dx/dy are offsets from the block center. Keeps _layout agnostic
+  // to the arrangement — text flow and repulsor bbox only need width/height and
+  // per-tile rects.
+  //
+  // "row"          → uniform horizontal row (original behaviour).
+  // "feature-left" → one large tile on the left, two stacked on the right.
+  //                  Requires exactly 3 media; any other count (or a missing
+  //                  featureLayout config) falls back to "row".
+  _computeMediaTiles(L, mediaCount, mediaLayout) {
+    const shortSide = Math.min(this.p.width, this.p.height);
+    const fl = this.layoutConfig.featureLayout;
+
+    if (mediaLayout === "feature-left" && mediaCount === 3 && fl) {
+      const width = shortSide * fl.blockWRatio;
+      const height = shortSide * fl.blockHRatio;
+      const gap = shortSide * fl.innerGapRatio;
+      const leftW = width * fl.leftFraction;
+      const rightW = width - leftW - gap;
+      const rightH = (height - gap) / 2;
+      const leftDx = -width / 2 + leftW / 2;
+      const rightDx = -width / 2 + leftW + gap + rightW / 2;
+      const rightDy = rightH / 2 + gap / 2;
+      return {
+        width,
+        height,
+        // media[0] = large left, media[1] = top right, media[2] = bottom right
+        tiles: [
+          { dx: leftDx, dy: 0, w: leftW, h: height },
+          { dx: rightDx, dy: -rightDy, w: rightW, h: rightH },
+          { dx: rightDx, dy: rightDy, w: rightW, h: rightH },
+        ],
+      };
+    }
+
+    // Default: uniform horizontal row of tileW × tileH tiles.
+    const width = mediaCount * L.tileW + (mediaCount - 1) * L.tileGap;
+    const tiles = [];
+    for (let i = 0; i < mediaCount; i++) {
+      tiles.push({
+        dx: -width / 2 + L.tileW / 2 + i * (L.tileW + L.tileGap),
+        dy: 0,
+        w: L.tileW,
+        h: L.tileH,
+      });
+    }
+    return { width, height: L.tileH, tiles };
   }
 
   // Idempotently builds the layout + repulsors before any image has
@@ -398,7 +455,7 @@ export class FlowerPreview {
           p: this.p,
           descriptor,
           position: pos,
-          size: { w: layout.mediaSize.w, h: layout.mediaSize.h },
+          size: { w: pos.w, h: pos.h },
           physics,
           appearDelay: 0,
           imageCache: this.imageCache,
@@ -429,7 +486,7 @@ export class FlowerPreview {
     ) {
       const pos = layout.mediaPositions[i];
       this.renderers[i].setPosition(pos.x, pos.y);
-      this.renderers[i].setSize(layout.mediaSize.w, layout.mediaSize.h);
+      this.renderers[i].setSize(pos.w, pos.h);
     }
     this._lastLayout = layout;
     this._rebuildRepulsors();
@@ -444,8 +501,8 @@ export class FlowerPreview {
   // monotone outward, no two overlapping ellipses fighting in a gap.
   //
   // Bounds source: live renderers (via getBounds) when mounted, otherwise
-  // mediaPositions + mediaSize from the layout — covers the pendingAnchor
-  // phase, where repulsion must start pushing before any renderer exists.
+  // mediaPositions (each with its own w/h) from the layout — covers the
+  // pendingAnchor phase, where repulsion must start pushing before any renderer exists.
   _rebuildRepulsors() {
     const rc = this.repulsionConfig;
     const L = this._lastLayout;
@@ -474,11 +531,12 @@ export class FlowerPreview {
         if (!bb) continue;
         expand(bb.left, bb.top, bb.right, bb.bottom);
       }
-    } else if (Array.isArray(L.mediaPositions) && L.mediaSize) {
-      // Pre-mount path: prepareLayout called during pendingAnchor.
-      const halfW = L.mediaSize.w / 2;
-      const halfH = L.mediaSize.h / 2;
+    } else if (Array.isArray(L.mediaPositions)) {
+      // Pre-mount path: prepareLayout called during pendingAnchor. Each tile
+      // carries its own w/h (asymmetric layouts have no shared size).
       for (const pos of L.mediaPositions) {
+        const halfW = pos.w / 2;
+        const halfH = pos.h / 2;
         expand(pos.x - halfW, pos.y - halfH, pos.x + halfW, pos.y + halfH);
       }
     }

@@ -53,6 +53,7 @@ export class BloomingFlower {
       labelConfig,
       idle,
       preview = null, // { url, … } — marks flower as clickable hotspot; consumed by PreviewManager
+      link = null, // direct URL — click opens it (no preview); PreviewManager + an <a> overlay handle it
       action = null, // { type: 'close' | 'link' } — preview-scoped button; BloomingFlower doesn't interpret it
       springRelease = null,
       pressLerpRate,
@@ -123,6 +124,7 @@ export class BloomingFlower {
     this._labelHeight = null;
 
     this.preview = preview;
+    this.link = link;
     this.action = action;
 
     // press: lerps 0→1 while pointer is held
@@ -633,6 +635,12 @@ export class BloomingFlower {
 
   hasPreview() {
     return this.preview != null;
+  }
+
+  // Direct-link flower: clicking opens this.link (no preview). PreviewManager
+  // gives it press/spring feedback and an invisible <a> overlay for the click.
+  hasLink() {
+    return !!this.link;
   }
 
   hasSpringEnabled() {
